@@ -1,0 +1,5 @@
+<resources>
+    <string name="mazda_usb_connection">USB-подключение</string>
+    <string name="mazda_update_manual">Эта версия EZ60 обновляется вручную. Установите версию Mazda, подписанную тем же ключом.</string>
+    <string name="mazda_home_instructions">Подключите iPhone в настройках Bluetooth автомобиля.\nОставьте Bluetooth и Wi-Fi включёнными.</string>
+</resources>

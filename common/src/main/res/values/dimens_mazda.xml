@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Match FileManager's header typography and vector size, independent of display density. -->
+    <dimen name="mazda_header_brand_size">40px</dimen>
+    <dimen name="mazda_header_close_size">64px</dimen>
+</resources>

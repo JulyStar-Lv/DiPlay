@@ -1,0 +1,5 @@
+<resources>
+    <string name="mazda_usb_connection">اتصال USB</string>
+    <string name="mazda_update_manual">يتم تحديث إصدار EZ60 هذا يدويًا. ثبّت إصدار Mazda موقّعًا بالمفتاح نفسه.</string>
+    <string name="mazda_home_instructions">أقرن iPhone في إعدادات بلوتوث السيارة ثم اتصل.\nأبقِ بلوتوث وWi-Fi قيد التشغيل.</string>
+</resources>
