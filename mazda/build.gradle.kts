@@ -1,7 +1,19 @@
+import org.gradle.api.provider.ValueSource
+import org.gradle.api.provider.ValueSourceParameters
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
+
+abstract class MazdaReleaseBuildDate : ValueSource<String, ValueSourceParameters.None> {
+    override fun obtain(): String = LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE)
+}
+
+// Track the local build date so configuration-cache reuse cannot retain yesterday's filename.
+val releaseBuildDate = providers.of(MazdaReleaseBuildDate::class) {}.get()
 
 evaluationDependsOn(":mobile")
 val mobileConfig = project(":mobile").extensions.getByType<com.android.build.api.dsl.ApplicationExtension>().defaultConfig
@@ -18,7 +30,7 @@ android {
 
     defaultConfig {
         applicationId = "com.shihab.diplay"
-        minSdk = 34
+        minSdk = 25
         targetSdk = 37
         versionCode = mobileConfig.versionCode
         versionName = mobileConfig.versionName
@@ -59,6 +71,20 @@ android {
     buildFeatures {
         compose = true
     }
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        unitTests.all { it.maxHeapSize = "1g" }
+    }
+}
+
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        variant.outputs.forEach { output ->
+            output.outputFileName.set(output.versionName.map { version ->
+                "DiPlay-Mazda-release-$version-$releaseBuildDate.apk"
+            })
+        }
+    }
 }
 
 dependencies {
@@ -74,6 +100,8 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     debugImplementation(libs.androidx.compose.ui.tooling)
+    testImplementation(libs.junit)
+    testImplementation("org.robolectric:robolectric:4.17")
 }
 
 // No implicit import. Only the two explicitly selected local runtime assets are allowed.

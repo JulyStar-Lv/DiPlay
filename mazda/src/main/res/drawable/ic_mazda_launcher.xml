@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Legacy Android cannot inflate fractional insets. Keep a loadable fallback. -->
+<bitmap xmlns:android="http://schemas.android.com/apk/res/android"
+    android:src="@drawable/ic_carplay" android:gravity="fill" android:filter="true" />

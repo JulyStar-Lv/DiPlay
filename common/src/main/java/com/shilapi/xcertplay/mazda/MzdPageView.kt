@@ -28,8 +28,10 @@ internal open class MzdPageView(
     private val illustrationBounds = Rect()
     private val exit = ImageButton(context)
     private val exitIconSize = resources.getDimensionPixelSize(R.dimen.mazda_header_close_size)
-    private val exitSize = maxOf(dp(56), exitIconSize)
-    private val headerHeight = maxOf(dp(80), exitSize + dp(24))
+    private val exitSize = exitIconSize
+    private val oemHeaderHeight = resources.getDimensionPixelSize(R.dimen.mazda_header_height)
+    private val headerActionHeight = dp(56)
+    private val headerHeight = maxOf(oemHeaderHeight, headerActionHeight)
     private val illustration = ConnectionIllustration(context)
     private val body = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
@@ -39,7 +41,8 @@ internal open class MzdPageView(
     private val scroll = ScrollView(context).apply { isFillViewport = true }
     private val header = LinearLayout(context).apply {
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(24), dp(12), dp(24), dp(12))
+        isBaselineAligned = false
+        setPaddingRelative(resources.getDimensionPixelSize(R.dimen.mazda_header_start), 0, dp(24), 0)
     }
     val stage = text("", 22f, false)
     val instructions = text("", 17f, true)
@@ -58,12 +61,20 @@ internal open class MzdPageView(
             setPadding(padding, padding, padding, padding)
             setOnClickListener { close() }
         }
-        header.addView(exit, LinearLayout.LayoutParams(exitSize, exitSize))
+        header.addView(exit, LinearLayout.LayoutParams(exitSize, exitSize).apply {
+            gravity = Gravity.TOP
+            topMargin = (oemHeaderHeight - exitSize) / 2
+        })
         val brandSize = resources.getDimensionPixelSize(R.dimen.mazda_header_brand_size)
         header.addView(ImageView(context).apply {
             setImageResource(R.drawable.ic_carplay)
             contentDescription = context.getString(R.string.carplay)
-        }, LinearLayout.LayoutParams(brandSize, brandSize).apply { marginStart = dp(12); marginEnd = dp(12) })
+        }, LinearLayout.LayoutParams(brandSize, brandSize).apply {
+            gravity = Gravity.TOP
+            topMargin = (oemHeaderHeight - brandSize) / 2
+            marginStart = resources.getDimensionPixelSize(R.dimen.mazda_header_title_gap)
+            marginEnd = resources.getDimensionPixelSize(R.dimen.mazda_header_brand_gap)
+        })
         header.addView(text(context.getString(R.string.diplay), 26f, false).apply {
             // Match FileManager's WTTextStyleHeadlineM40M, whose size is in physical pixels.
             setTextSize(TypedValue.COMPLEX_UNIT_PX, resources.getDimension(R.dimen.mazda_header_brand_size))
@@ -72,9 +83,12 @@ internal open class MzdPageView(
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
-        }, LinearLayout.LayoutParams(0, exitSize, 1f))
+        }, LinearLayout.LayoutParams(0, exitSize, 1f).apply {
+            gravity = Gravity.TOP
+            topMargin = (oemHeaderHeight - exitSize) / 2
+        })
         header.addView(action(context.getString(R.string.settings), false, settings).also { headerButtons += it },
-            LinearLayout.LayoutParams(-2, dp(56)))
+            headerActionLayout())
         body.addView(illustration, LinearLayout.LayoutParams(dp(440), dp(190)))
         body.addView(text(context.getString(R.string.carplay), 36f, false).apply {
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
@@ -106,12 +120,19 @@ internal open class MzdPageView(
     fun addHeaderAction(label: String, click: () -> Unit): Button =
         action(label, false, click).also {
             headerButtons += it
-            header.addView(it, header.childCount - 1, LinearLayout.LayoutParams(-2, dp(56)))
+            header.addView(it, header.childCount - 1, headerActionLayout())
             paint(night)
         }
 
+    private fun headerActionLayout() = LinearLayout.LayoutParams(-2, headerActionHeight).apply {
+        gravity = Gravity.TOP
+        topMargin = ((oemHeaderHeight - headerActionHeight) / 2).coerceAtLeast(0)
+    }
+
     fun addRecovery(button: Button) {
         (button.parent as? android.view.ViewGroup)?.removeView(button)
+        button.textSize = 19f
+        button.setPadding(dp(16), 0, dp(16), 0)
         buttons += button to false
         body.addView(button, body.indexOfChild(actions), LinearLayout.LayoutParams(-1, dp(60)).apply {
             bottomMargin = dp(12)

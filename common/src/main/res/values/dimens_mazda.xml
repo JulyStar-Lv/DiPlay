@@ -3,4 +3,9 @@
     <!-- Match FileManager's header typography and vector size, independent of display density. -->
     <dimen name="mazda_header_brand_size">40px</dimen>
     <dimen name="mazda_header_close_size">64px</dimen>
+    <!-- OEM title-bar geometry stays in physical pixels, like its 128px row and 32px icon gap. -->
+    <dimen name="mazda_header_height">128px</dimen>
+    <dimen name="mazda_header_start">40px</dimen>
+    <dimen name="mazda_header_title_gap">32px</dimen>
+    <dimen name="mazda_header_brand_gap">12px</dimen>
 </resources>

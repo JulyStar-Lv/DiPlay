@@ -1591,6 +1591,13 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun buildContentView(): View {
+        // Scale Mazda's preparation UI like the home page. Keep the host's resources unchanged:
+        // video negotiation, surfaces and touch coordinates must use the original window metrics.
+        val preparationContext = if (MzdIntegration.enabled(this)) {
+            android.view.ContextThemeWrapper(this, 0).apply {
+                InterfaceSize.attach(this, this@CarPlayHostActivity)?.let { InterfaceSize.enforce(resources, it) }
+            }
+        } else this
         val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         val video = TextureView(this).apply {
             isOpaque = false
@@ -1641,14 +1648,14 @@ class CarPlayHostActivity : ComponentActivity() {
             gravity = Gravity.CENTER
         }
         panel.addView(instructions)
-        val recovery = DiPlayButton(this).apply {
+        val recovery = DiPlayButton(preparationContext).apply {
             text = getString(R.string.reset_carplay_wi_fi)
             visibility = View.GONE
             setOnClickListener { showDiPlayHome("wireless-recovery") }
             wifiRecoveryButton = this
         }
         panel.addView(recovery, LinearLayout.LayoutParams(dp(300), dp(64)).apply { bottomMargin = dp(12) })
-        val retry = DiPlayButton(this).apply {
+        val retry = DiPlayButton(preparationContext).apply {
             text = getString(R.string.retry_carplay_connection)
             visibility = View.GONE
             setOnClickListener {
@@ -1770,7 +1777,7 @@ class CarPlayHostActivity : ComponentActivity() {
         connectionPanel = viewport
         updateDebugOverlays()
         if (MzdIntegration.enabled(this)) {
-            val mazda = MzdConnectionView(this, appNight, MzdIntegration::closeWindows,
+            val mazda = MzdConnectionView(preparationContext, appNight, MzdIntegration::closeWindows,
                 settings = { showDiPlayHome("settings") }, back = { showDiPlayHome() }, wireless = wirelessEnabled)
             mazda.addRecovery(recovery)
             mazda.addRecovery(retry)
@@ -4758,6 +4765,20 @@ class CarPlayHostActivity : ComponentActivity() {
                 }
             }
 
+            override fun onHostUiRequested(session: AirPlaySession) {
+                runOnUiThread {
+                    if (!MzdIntegration.enabled(this@CarPlayHostActivity)) return@runOnUiThread
+                    // A reused background session may not emit onSessionActive again.
+                    val active = activeAirPlaySession
+                    if (controllerGeneration != restartGeneration || (active != null && active !== session) ||
+                        isFinishing || isDestroyed || !CarPlayBackgroundSession.isOwner(this@CarPlayHostActivity)) return@runOnUiThread
+                    // The controller already opens HOME; EZ60 can leave both transparent tasks above it.
+                    // Close their windows without stopping the shared CarPlay session.
+                    MzdIntegration.closeWindows()
+                    if (!isFinishing) finish()
+                }
+            }
+
             override fun onVideoFrameRendered(session: AirPlaySession) {
                 runOnUiThread {
                     if (controllerGeneration != restartGeneration || activeAirPlaySession !== session || shuttingDown.get()) return@runOnUiThread
@@ -4904,10 +4925,7 @@ class CarPlayHostActivity : ComponentActivity() {
         MapMirrors.reapply()
         CarPlayBackgroundSession.store(snapshot.controller, snapshot.sink, snapshot.width, snapshot.height,
             this, snapshot.display) { completion ->
-            runOnUiThread {
-                shutdown(false, "DiPlay disconnect", completion)
-                finish()
-            }
+            runOnUiThread { stopBackgroundSession(completion) }
         }
         callPopupSessionReady = CarPlayBackgroundSession.callPopupReady
         updateCallPopupGuard()
@@ -5082,10 +5100,7 @@ class CarPlayHostActivity : ComponentActivity() {
         sessionDisplay = display
         videoView?.let { updateVideoLayout(it.width, it.height) }
         CarPlayBackgroundSession.store(next, renderer, size.width, size.height, this, display) { completion ->
-            runOnUiThread {
-                shutdown(terminateProcess = false, reason = "DiPlay disconnect", completion = completion)
-                finish()
-            }
+            runOnUiThread { stopBackgroundSession(completion) }
         }
         try {
             ContextCompat.startForegroundService(this, Intent(this, DiPlaySessionService::class.java))
@@ -5647,6 +5662,24 @@ class CarPlayHostActivity : ComponentActivity() {
         shutdown(terminateProcess = true, reason = "settings exit application")
     }
 
+    private fun stopBackgroundSession(completion: () -> Unit) {
+        shutdown(terminateProcess = false, reason = "DiPlay disconnect", completion = completion)
+        val mazda = MzdIntegration.enabled(this)
+        if (mazda) {
+            // The cockpit can still compose this task underneath Home. Its default exit
+            // animation moves that panel when Home disconnects an otherwise hidden host.
+            // Hide the retired content as well: OEM cross-task transitions may ignore overrides.
+            window.decorView.visibility = View.GONE
+            window.setWindowAnimations(0)
+            if (Build.VERSION.SDK_INT >= 34) overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, 0, 0)
+        }
+        finish()
+        if (mazda) {
+            @Suppress("DEPRECATION")
+            overridePendingTransition(0, 0)
+        }
+    }
+
     private fun shutdown(terminateProcess: Boolean, reason: String, completion: () -> Unit = {}) {
         if (!shuttingDown.compareAndSet(false, true)) { completion(); return }
         mazdaHotspotPreparation?.cancel()
@@ -6108,6 +6141,7 @@ internal object CarPlayBackgroundSession {
     private var owner: Any? = null
     @Synchronized fun isOwner(candidate: Any): Boolean = owner === candidate
     @Synchronized fun hasSession(): Boolean = stopAction != null || stopping
+    @Synchronized fun isStopping(): Boolean = stopping
     private val stopWaiters = mutableListOf<() -> Unit>()
 
     fun stop(completion: () -> Unit = {}) {

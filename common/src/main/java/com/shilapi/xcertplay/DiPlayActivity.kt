@@ -183,7 +183,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private var setupError: String? = null
     private var status: TextView? = null
     private var connectButton: Button? = null
-    private var disconnectButton: Button? = null
+    private var phoneSessionButton: Button? = null
     private var lastRunning: Boolean? = null
     private var pendingWireless = false
     private var initialLaunch = true
@@ -647,7 +647,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         settingsSearchPopup = null
         settingsSearchBox = null
         if (page != "settings") clearSettingsSearchState()
-        status = null; connectButton = null; disconnectButton = null; lastRunning = null; carButtonCard = null
+        status = null; connectButton = null; phoneSessionButton = null; lastRunning = null; carButtonCard = null
         reconnectBar = null
         readinessCard = null
         exportButton = null
@@ -667,22 +667,12 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             MzdHomeView(this, appNight, MzdIntegration::closeWindows,
                 settings = { page = "settings"; render() },
                 connect = { if (CarPlayBackgroundSession.hasSession()) openProjection() else connect(true) },
-                choosePhone = ::choosePhone, usb = { connect(false) },
+                phoneSessionAction = ::onHomePhoneSessionClick, usb = { connect(false) },
             ).apply {
                 status = stage
                 this@DiPlayActivity.connectButton = connectButton
                 setupError?.let { instructions.text = it }
-                val disconnect = Button(this@DiPlayActivity).apply {
-                    text = getString(R.string.disconnect)
-                    isAllCaps = false
-                    visibility = View.GONE
-                    setOnClickListener {
-                        isEnabled = false
-                        CarPlayBackgroundSession.stop { runOnUiThread { refreshStatus() } }
-                    }
-                }
-                disconnectButton = disconnect
-                addRecovery(disconnect)
+                this@DiPlayActivity.phoneSessionButton = phoneSessionButton
             }
         } else if (page == "settings" && isExpandedSettingsLayout) {
             content.setPadding(0, 0, 0, dp(32))
@@ -900,12 +890,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             card.addView(label(getString(R.string.msg_car_hotspot_off, AirPlayPersistence.loadManualHotspotSsid(this)), 15, WARNING).apply { setPadding(0, dp(14), 0, 0) })
             if (!compact) card.addView(homeButton(getString(R.string.open_car_hotspot_settings), false) { openCarWifiSettings() }, matchButton(CONTROL_GAP_DP, 56))
         }
-        card.addView(homeButton(getString(R.string.choose_iphone), false) { choosePhone() }, matchButton(if (compact) CONTROL_GAP_DP else 16, if (compact) 46 else 56))
-        disconnectButton = homeButton(getString(R.string.disconnect), false) {
-            disconnectButton?.isEnabled = false
-            CarPlayBackgroundSession.stop { runOnUiThread { refreshStatus() } }
-        }.apply { visibility = View.GONE }
-        card.addView(disconnectButton, matchButton(if (compact) CONTROL_GAP_DP else 16, if (compact) 46 else 56))
+        phoneSessionButton = homeButton(getString(R.string.choose_iphone), false, ::onHomePhoneSessionClick)
+        card.addView(phoneSessionButton, matchButton(if (compact) CONTROL_GAP_DP else 16, if (compact) 46 else 56))
         val right = column().apply { gravity = Gravity.CENTER_HORIZONTAL }
         val logo = ImageView(this).apply {
             setImageResource(R.drawable.ic_carplay)
@@ -5109,6 +5095,18 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
     }
 
+    private fun onHomePhoneSessionClick() {
+        // Read the live session again: the label may be up to one status tick old.
+        if (CarPlayBackgroundSession.isStopping()) return
+        if (!CarPlayBackgroundSession.hasSession()) {
+            choosePhone()
+            return
+        }
+        phoneSessionButton?.isEnabled = false
+        CarPlayBackgroundSession.stop { runOnUiThread { refreshStatus() } }
+        refreshStatus()
+    }
+
     private fun refreshStatus() {
         val running = CarPlayBackgroundSession.hasSession()
         status?.text = when {
@@ -5120,9 +5118,11 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         if (lastRunning != running) {
             connectButton?.text = if (running) getString(R.string.open_carplay) else getString(R.string.connect_phone)
-            disconnectButton?.visibility = if (running) View.VISIBLE else View.GONE
-            disconnectButton?.isEnabled = true
             lastRunning = running
+        }
+        phoneSessionButton?.apply {
+            text = getString(if (running) R.string.disconnect else R.string.choose_iphone)
+            isEnabled = !CarPlayBackgroundSession.isStopping()
         }
         connectButton?.isEnabled = setupError == null
         refreshReconnectBar()

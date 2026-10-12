@@ -12,6 +12,8 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.ImageButton
 import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import com.shilapi.xcertplay.host.R
 import org.junit.Assert.*
@@ -112,9 +114,7 @@ class MzdPageViewTest {
         try {
             for (density in listOf("mdpi", "xxxhdpi")) {
                 RuntimeEnvironment.setQualifiers("zh-rCN-$density")
-                val app = RuntimeEnvironment.getApplication()
-                app.resources.updateConfiguration(Configuration(app.resources.configuration).apply { fontScale = 1.5f },
-                    app.resources.displayMetrics)
+                RuntimeEnvironment.setFontScale(1.5f)
                 val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
                 try {
                     val view = MzdHomeView(activity, false, {}, {}, {}, {}, {})
@@ -131,25 +131,86 @@ class MzdPageViewTest {
         } finally { RuntimeEnvironment.setQualifiers("zh-rCN-hdpi") }
     }
 
+    @Test fun homeKeepsTwoActionSlotsForBothSessionStatesWithLargeFonts() {
+        val app = RuntimeEnvironment.getApplication()
+        val previousFontScale = app.resources.configuration.fontScale
+        try {
+            for (locale in listOf("zh-rCN", "ar")) for (width in listOf(1728, 2496)) {
+                RuntimeEnvironment.setQualifiers("$locale-hdpi")
+                app.applicationInfo.flags = app.applicationInfo.flags or ApplicationInfo.FLAG_SUPPORTS_RTL
+                app.resources.updateConfiguration(Configuration(app.resources.configuration).apply { fontScale = 1.5f },
+                    app.resources.displayMetrics)
+                val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+                try {
+                    val home = MzdHomeView(activity, false, {}, {}, {}, {}, {})
+                    home.layoutDirection = if (locale == "ar") View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
+                    val action = home.phoneSessionButton
+                    for (running in listOf(false, true)) {
+                        home.stage.text = activity.getString(if (running) R.string.carplay_connected else R.string.ready_when_you_are)
+                        home.connectButton.text = activity.getString(if (running) R.string.open_carplay else R.string.connect_phone)
+                        action.text = activity.getString(if (running) R.string.disconnect else R.string.choose_iphone)
+                        home.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                            View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY))
+                        home.layout(0, 0, width, 1080)
+                        val scroll = descendants(home).filterIsInstance<ScrollView>().single()
+                        scroll.scrollTo(0, maxOf(0, scroll.getChildAt(0).height - scroll.height + scroll.paddingTop + scroll.paddingBottom))
+                        assertSame(home.connectButton.parent, action.parent)
+                        assertEquals(2, (action.parent as ViewGroup).childCount)
+                        if ((action.parent as LinearLayout).orientation == LinearLayout.HORIZONTAL) {
+                            assertEquals(home.connectButton.top, action.top)
+                        } else {
+                            assertTrue(home.connectButton.bottom <= action.top)
+                        }
+                        assertEquals(home.connectButton.height, action.height)
+                        assertEquals(home.connectButton.width, action.width)
+                        val visible = Rect()
+                        assertTrue("Home session action must be reachable", action.getLocalVisibleRect(visible))
+                        assertEquals(action.height, visible.height())
+                        val bitmap = Bitmap.createBitmap(width, 1080, Bitmap.Config.ARGB_8888)
+                        try {
+                            home.draw(Canvas(bitmap))
+                            val out = File("build/reports/mazda-ui/home-session-$width-$locale-font-1.5-${if (running) "connected" else "idle"}.png")
+                            out.parentFile!!.mkdirs()
+                            out.outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+                        } finally { bitmap.recycle() }
+                    }
+                } finally { activity.finish() }
+            }
+        } finally {
+            RuntimeEnvironment.setQualifiers("zh-rCN-hdpi")
+            app.resources.updateConfiguration(Configuration(app.resources.configuration).apply { fontScale = previousFontScale },
+                app.resources.displayMetrics)
+        }
+    }
+
     private fun assertHeaderVisible(view: View) {
         val title = descendants(view).filterIsInstance<TextView>().single {
             it.text == view.context.getString(R.string.diplay)
         }
+        val exit = descendants(view).filterIsInstance<ImageButton>().single()
         val logo = descendants(view).filterIsInstance<ImageView>().single {
             it.contentDescription == view.context.getString(R.string.carplay)
         }
         assertEquals(40f, title.textSize, 0f)
         assertEquals(40, logo.width)
         assertEquals(40, logo.height)
-        assertEquals(title.top + title.height / 2, logo.top + logo.height / 2)
+        assertEquals(64, logo.top + logo.height / 2)
+        assertEquals(64, exit.width)
+        assertEquals(64, exit.height)
+        assertEquals(64, exit.top + exit.height / 2)
+        assertEquals(title.top + title.height / 2, exit.top + exit.height / 2)
         if (view.layoutDirection == View.LAYOUT_DIRECTION_RTL) {
-            assertTrue("RTL title must follow the logo", title.right <= logo.left)
-            assertEquals("RTL title text must stay beside the logo", (title.width - title.compoundPaddingRight).toFloat(),
+            assertEquals(40, (exit.parent as View).width - exit.right)
+            assertEquals(32, exit.left - logo.right)
+            assertEquals(12, logo.left - title.right)
+            assertEquals("RTL title text must stay beside the close control", (title.width - title.compoundPaddingRight).toFloat(),
                 title.layout.getLineRight(0), 1f)
         } else {
-            assertTrue("LTR title must follow the logo", title.left >= logo.right)
+            assertEquals(40, exit.left)
+            assertEquals(32, logo.left - exit.right)
+            assertEquals(12, title.left - logo.right)
         }
-        for (control in listOf(title, logo, descendants(view).filterIsInstance<ImageButton>().single())) {
+        for (control in listOf(title, logo, exit)) {
             val visible = Rect()
             assertTrue("Header control must remain visible", control.getLocalVisibleRect(visible))
             assertEquals(control.width, visible.width())

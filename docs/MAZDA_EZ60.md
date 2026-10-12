@@ -34,7 +34,9 @@ The local `.private` folder contains these release wrappers:
 
 All wrappers load the existing `release-env.sh` / `release-env.ps1`, verify the signing and
 runtime authentication files, then run `:mazda:lintRelease :mazda:assembleRelease`.
-The output is `mazda/build/outputs/apk/release/mazda-release.apk`. Existing mobile wrappers
+The output is `mazda/build/outputs/apk/release/DiPlay-Mazda-release-<version>-<yyyyMMdd>.apk`,
+using the version from `:mobile` and the local build date (for example,
+`DiPlay-Mazda-release-0.2.18-20261012.apk`). Existing mobile wrappers
 continue to build `:mobile`.
 
 ## Isolation and integration points
@@ -44,6 +46,23 @@ shared presentation, cockpit container and adapter. `config_mazda` defaults to f
 `:common` and is overridden only by `:mazda`. The two existing Activities select the Mazda
 views and container through this flag; their settings, actions and session state are reused.
 There are no copied Activities, duplicated background-session singletons or activity aliases.
+
+The home and connection pages share their typography, artwork and control dimensions. The
+connection page applies the saved interface-size preference to its own UI context, including
+retry and Wi-Fi recovery controls, while the host keeps system metrics for video and touch.
+Both pages align their 64px close control and title group with the OEM title bar: a 40px start
+inset, a centre 64px below the panel top and a 32px gap before the title group. The group keeps
+the green CarPlay icon at 40px, followed by the 40px DiPlay title with a 12px gap. These anchors
+stay independent of interface scaling, and the title truncates to fit the available width.
+
+The Mazda launcher icon removes the source artwork's transparent outer margin with a
+drawable wrapper, so its green outline fills the OEM app-centre slot. Its outer background
+uses the OEM app-centre corner proportion (28px in a 128px slot), while a central cutout
+retains the original C/play badge pixels. Page artwork is unchanged.
+The launcher drawable variants and frame live only in `mazda/src/main/res/`; their rendering
+test lives in `mazda/src/test/` and runs with `:mazda:testDebugUnitTest` in CI.
+Disconnecting from Home suppresses the retiring CarPlay window's exit animation; session
+teardown still completes asynchronously before Home re-enables device selection.
 
 The Mazda manifest alone registers `MzdApplication`. Before Activities or services start,
 `MzdDefaults` initializes missing preferences once: hide status/navigation bars off, 60 FPS,
@@ -66,6 +85,8 @@ its sidebar (1728×1080). These physical OEM coordinates do not scale with Andro
 Other window sizes use their available bounds. Observers and the navigation broadcast receiver
 are removed when the container detaches. The recognized OEM car-home broadcast closes both
 transparent Activity windows while retaining the shared CarPlay session.
+The CarPlay OEM icon uses the same window-closing behavior after its `requestUI` command opens
+the head-unit home screen. Returning to DiPlay reuses the background connection.
 
 Both cockpit shapes are declared as existing CarPlay view areas on the same full-size canvas.
 Starting in the narrow shape declares both shapes too. Sidebar changes use `showViewArea`,
