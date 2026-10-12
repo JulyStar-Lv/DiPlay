@@ -1,0 +1,5 @@
+<resources>
+    <string name="mazda_usb_connection">USB接続</string>
+    <string name="mazda_update_manual">このEZ60専用版は手動で更新します。同じ鍵で署名されたMazda版をインストールしてください。</string>
+    <string name="mazda_home_instructions">車載端末のBluetooth設定でiPhoneをペアリングしてから接続してください。\nBluetoothとWi-Fiをオンにしておいてください。</string>
+</resources>

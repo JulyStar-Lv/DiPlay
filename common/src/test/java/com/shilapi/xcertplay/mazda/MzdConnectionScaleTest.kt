@@ -15,6 +15,7 @@ import com.shilapi.xcertplay.CarPlayHostActivity
 import com.shilapi.xcertplay.DiPlayActivity
 import com.shilapi.xcertplay.InterfaceSize
 import com.shilapi.xcertplay.host.R
+import com.shilapi.xcertplay.orchestration.CarPlayStatus
 import java.io.File
 import java.util.concurrent.ExecutorService
 import org.junit.Assert.*
@@ -37,6 +38,55 @@ import org.robolectric.util.ReflectionHelpers
     shadows = [MzdConnectionScaleTest.MazdaResources::class])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class MzdConnectionScaleTest {
+    @Test fun hostRecoveryGuidanceIsVisibleInTheScaledMazdaPageAndClearsOnRetry() {
+        InterfaceSize.save(RuntimeEnvironment.getApplication(), InterfaceSize.AUTO)
+        for (locale in listOf("zh-rCN", "ar")) {
+            RuntimeEnvironment.setQualifiers("$locale-sw1440dp-w5120dp-h1440dp-mdpi")
+            RuntimeEnvironment.setFontScale(1.5f)
+            val app = RuntimeEnvironment.getApplication()
+            app.applicationInfo.flags = app.applicationInfo.flags or ApplicationInfo.FLAG_SUPPORTS_RTL
+            for (width in listOf(1728, 2496)) for (night in listOf(false, true)) {
+                withPages { _, waiting, root, host ->
+                    root.layoutDirection = if (locale == "ar") View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
+                    waiting.layoutDirection = root.layoutDirection
+                    waiting.paint(night)
+                    assertSame(waiting.instructions, ReflectionHelpers.getField<TextView>(host, "connectionInstructionsView"))
+                    assertSame(waiting.help, ReflectionHelpers.getField<TextView>(host, "connectionHelpView"))
+                    val showHelp = host.javaClass.getDeclaredMethod("showConnectionHelp", CarPlayStatus.Failed::class.java)
+                        .apply { isAccessible = true }
+                    showHelp.invoke(host, CarPlayStatus.Failed("RFCOMM socket closed"))
+                    layout(root, width)
+                    assertEquals(View.GONE, waiting.instructions.visibility)
+                    assertEquals(View.VISIBLE, waiting.help.visibility)
+                    assertTrue(descendants(root).contains(waiting.help))
+                    assertEquals(host.getString(R.string.connection_help_bluetooth), waiting.help.text.toString())
+                    assertEquals(waiting.instructions.textSize, waiting.help.textSize, 0f)
+                    assertEquals(waiting.instructions.currentTextColor, waiting.help.currentTextColor)
+                    assertTrue(waiting.help.width > 0 && waiting.help.width <= waiting.width)
+                    if (locale == "ar") {
+                        val close = descendants(waiting).filterIsInstance<android.widget.ImageButton>().single()
+                        val settings = descendants(waiting).filterIsInstance<Button>().single {
+                            it.text == waiting.context.getString(R.string.settings)
+                        }
+                        assertTrue("Recovery page must keep the mirrored Arabic header", close.left > settings.right)
+                    }
+                    val bitmap = Bitmap.createBitmap(width, 1080, Bitmap.Config.ARGB_8888)
+                    waiting.draw(Canvas(bitmap))
+                    val module = File(requireNotNull(System.getProperty("user.dir"))).let {
+                        if (it.name == "common") it else File(it, "common")
+                    }
+                    val output = File(module, "build/reports/mazda-ui/recovery-$width-${if (night) "dark" else "light"}-$locale-font-1.5.png")
+                    requireNotNull(output.parentFile).mkdirs()
+                    output.outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+                    bitmap.recycle()
+                    showHelp.invoke(host, null)
+                    assertEquals(View.VISIBLE, waiting.instructions.visibility)
+                    assertEquals(View.GONE, waiting.help.visibility)
+                }
+            }
+        }
+    }
+
     @Test fun actualHostUsesTheHomeScaleForEveryChoiceWithoutScalingVideoOrTouch() {
         for (choice in InterfaceSize.CHOICES) {
             InterfaceSize.save(RuntimeEnvironment.getApplication(), choice)

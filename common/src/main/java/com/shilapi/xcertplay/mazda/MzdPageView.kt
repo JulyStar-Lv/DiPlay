@@ -46,6 +46,7 @@ internal open class MzdPageView(
     }
     val stage = text("", 22f, false)
     val instructions = text("", 17f, true)
+    val help = text("", 17f, true).apply { visibility = View.GONE }
     private val actions = LinearLayout(context).apply { gravity = Gravity.CENTER }
     val hint = text("", 14f, true)
     private var night = night
@@ -95,6 +96,7 @@ internal open class MzdPageView(
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12); bottomMargin = dp(8) })
         body.addView(stage, LinearLayout.LayoutParams(-1, -2))
         body.addView(instructions, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12); bottomMargin = dp(16) })
+        body.addView(help, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12); bottomMargin = dp(16) })
         body.addView(actions, LinearLayout.LayoutParams(-1, -2))
         body.addView(hint, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
         scroll.addView(body)

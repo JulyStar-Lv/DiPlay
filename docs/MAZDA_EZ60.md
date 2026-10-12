@@ -36,7 +36,7 @@ All wrappers load the existing `release-env.sh` / `release-env.ps1`, verify the 
 runtime authentication files, then run `:mazda:lintRelease :mazda:assembleRelease`.
 The output is `mazda/build/outputs/apk/release/DiPlay-Mazda-release-<version>-<yyyyMMdd>.apk`,
 using the version from `:mobile` and the local build date (for example,
-`DiPlay-Mazda-release-0.2.18-20261012.apk`). Existing mobile wrappers
+`DiPlay-Mazda-release-0.2.19-20261012.apk`). Existing mobile wrappers
 continue to build `:mobile`.
 
 ## Isolation and integration points
@@ -50,6 +50,8 @@ There are no copied Activities, duplicated background-session singletons or acti
 The home and connection pages share their typography, artwork and control dimensions. The
 connection page applies the saved interface-size preference to its own UI context, including
 retry and Wi-Fi recovery controls, while the host keeps system metrics for video and touch.
+Connection failure guidance replaces the preparation instructions on this same scaled page,
+then restores those instructions when the next connection stage starts.
 Both pages align their 64px close control and title group with the OEM title bar: a 40px start
 inset, a centre 64px below the panel top and a 32px gap before the title group. The group keeps
 the green CarPlay icon at 40px, followed by the 40px DiPlay title with a 12px gap. These anchors

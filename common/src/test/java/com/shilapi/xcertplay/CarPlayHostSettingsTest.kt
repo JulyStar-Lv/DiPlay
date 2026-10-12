@@ -1,6 +1,9 @@
 package com.shilapi.xcertplay
 
 import android.content.Intent
+import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Handler
@@ -10,6 +13,7 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.SeekBar
 import android.widget.RadioButton
+import android.widget.ScrollView
 import android.widget.TextView
 import com.shilapi.xcertplay.airplay.*
 import com.shilapi.xcertplay.host.R
@@ -17,6 +21,9 @@ import com.shilapi.xcertplay.orchestration.*
 import com.shilapi.xcertplay.transport.Iap2IdentificationConfig
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.atomic.AtomicBoolean
+import java.io.File
+import java.io.FileOutputStream
+import java.util.Locale
 import org.junit.After
 import android.app.AlertDialog
 import android.os.Looper
@@ -33,6 +40,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.shadows.ShadowAlertDialog
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 import org.robolectric.annotation.LooperMode
 import org.robolectric.android.util.concurrent.PausedExecutorService
 
@@ -106,11 +114,61 @@ class CarPlayHostSettingsTest {
             assertTrue(kotlin.math.abs(panel.left - (width - panel.right)) <= 1)
             val title = views(panel).filterIsInstance<TextView>()
                 .first { it.text == activity.getString(R.string.carplay_settings) }
-            val close = views(panel).filterIsInstance<Button>().first { it.text == "X" }
+            val close = views(panel).filterIsInstance<Button>()
+                .first { it.text == activity.getString(R.string.close) }
             val titleBounds = android.graphics.Rect(0, 0, title.width, title.height)
+            val closeBounds = android.graphics.Rect(0, 0, close.width, close.height)
             (panel as ViewGroup).offsetDescendantRectToMyCoords(title, titleBounds)
-            assertTrue(kotlin.math.abs(titleBounds.exactCenterY() - (close.top + close.height / 2f)) <= 1f)
+            panel.offsetDescendantRectToMyCoords(close, closeBounds)
+            assertTrue(kotlin.math.abs(titleBounds.exactCenterY() - closeBounds.exactCenterY()) <= 1f)
+            assertTrue(panel.top > 0)
+            assertTrue(panel.bottom < height)
+            val scroll = views(panel).filterIsInstance<ScrollView>().first()
+            fun action(label: Int) = views(panel).filterIsInstance<Button>().first { it.text == activity.getString(label) }
+            // Save stays pinned below the list while it scrolls.
+            val save = action(R.string.save_and_reconnect)
+            assertFalse(views(scroll).any { it === save })
+            val bounds = android.graphics.Rect(0, 0, save.width, save.height)
+            panel.offsetDescendantRectToMyCoords(save, bounds)
+            assertTrue(bounds.top >= scroll.bottom)
+            assertTrue(bounds.bottom <= panel.height)
+            // Exit ends CarPlay: it is the last item of the list, never pinned next to Save.
+            val exit = action(R.string.exit_application)
+            val list = scroll.getChildAt(0) as ViewGroup
+            assertTrue(list.getChildAt(list.childCount - 1) === exit)
         }
+    }
+
+    @Test
+    @Config(qualifiers = "en-w600dp-h720dp-mdpi")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun compactLargeFontSwipeMenuScreenshot() = checkSwipeMenuScreenshot("upstream-swipe-compact-large-font.png", 600, 720)
+
+    @Test
+    @Config(qualifiers = "en-w1920dp-h1080dp-mdpi")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun fullLargeFontSwipeMenuScreenshot() = checkSwipeMenuScreenshot("upstream-swipe-full-large-font.png", 1920, 1080)
+
+    @Test
+    @Config(qualifiers = "en-w600dp-h720dp-mdpi")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun lightLargeFontSwipeMenuScreenshot() = checkSwipeMenuScreenshot("upstream-swipe-light-large-font.png", 600, 720)
+
+    @Test
+    @Config(qualifiers = "ar-rSA-w600dp-h720dp-mdpi")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun arabicLargeFontSwipeMenuScreenshot() = checkSwipeMenuScreenshot("upstream-swipe-arabic-large-font.png", 600, 720)
+
+    @Test fun closeButtonDiscardsEditsWithoutRestartingCarPlay() {
+        val controller = attachController()
+        invoke("openSettingsMenu")
+        resolutionSlider().progress = 0
+        val close = views(menu()).filterIsInstance<Button>()
+            .first { it.text == activity.getString(R.string.close) }
+        close.performClick()
+        assertFalse(field("menuOpen") as Boolean)
+        assertSame(controller, field("controller"))
+        assertEquals(0, field("restartGeneration"))
     }
     @Test fun configuredFingerCountsOpenTheMountedMenuWithoutLeavingCarPlay() {
         assertEquals(3, AirPlayPersistence.loadSettingsGestureFingers(activity))
@@ -307,7 +365,7 @@ class CarPlayHostSettingsTest {
         assertEquals("Unsaved hotspot", field("manualHotspotSsid"))
         assertEquals(false, field("appNight"))
         assertEquals(
-            DiPlayPalette.LIGHT.overlayBackground,
+            0xB3000000.toInt(),
             (menu().background as android.graphics.drawable.ColorDrawable).color,
         )
         val heading = views(menu()).filterIsInstance<TextView>()
@@ -563,6 +621,43 @@ class CarPlayHostSettingsTest {
         val size = sizeClass.getDeclaredConstructor(Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
             .apply { isAccessible = true }.newInstance(width, height)
         setField("activeDisplaySize", size)
+    }
+
+    private fun checkSwipeMenuScreenshot(name: String, width: Int, height: Int) {
+        val config = Configuration(activity.resources.configuration).apply {
+            fontScale = 1.5f
+            val locale = Locale.forLanguageTag(if (name.contains("arabic")) "ar-SA" else "en-US")
+            setLocale(locale)
+            setLayoutDirection(locale)
+        }
+        @Suppress("DEPRECATION")
+        activity.resources.updateConfiguration(config, activity.resources.displayMetrics)
+        if (name.contains("light")) {
+            AirPlayPersistence.saveAppAppearance(activity, AppAppearance.LIGHT)
+            invoke("refreshAppAppearance")
+        }
+        invoke("openSettingsMenu")
+        val root = menu()
+        repeat(3) {
+            root.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
+            root.layout(0, 0, width, height)
+        }
+        val panel = (root as ViewGroup).getChildAt(0)
+        assertTrue(panel.left > 0)
+        assertTrue(panel.top > 0)
+        assertTrue(panel.right < width)
+        assertTrue(panel.bottom < height)
+        val close = views(panel).filterIsInstance<Button>()
+            .first { it.text == activity.getString(R.string.close) }
+        assertTrue(close.width >= close.height)
+        val destination = System.getenv("DIPLAY_SCREENSHOT_DIR") ?: return
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        root.draw(Canvas(bitmap))
+        val file = File(destination, name)
+        check(file.parentFile!!.isDirectory || file.parentFile!!.mkdirs())
+        FileOutputStream(file).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        bitmap.recycle()
     }
 
     private fun gesture(fingers: Int, x: Float = 400f, y: Float = 700f) {
