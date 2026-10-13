@@ -25,6 +25,14 @@
             android:name="KEY_HIDE_SYSTEMBAR"
             android:value="true" />
 
+        <activity android:name="com.shilapi.xcertplay.DiPlayActivity"
+            android:theme="@style/Theme.Xcertplay.Mazda" tools:replace="android:theme" />
+        <activity android:name="com.shilapi.xcertplay.CarPlayHostActivity"
+            android:launchMode="singleTop"
+            android:taskAffinity="${applicationId}"
+            android:theme="@style/Theme.Xcertplay.Mazda"
+            tools:replace="android:launchMode,android:taskAffinity,android:theme" />
+
         <meta-data
             android:name="android.allow_multiple_resumed_activities"
             android:value="true" />

@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.mazda
 
+import android.app.Activity
 import android.content.res.Resources
 import android.os.Handler
 import android.view.View
@@ -29,10 +30,12 @@ import org.robolectric.annotation.Implements
 import org.robolectric.annotation.RealObject
 import org.robolectric.shadow.api.Shadow
 import org.robolectric.shadows.ShadowResources
+import org.robolectric.shadows.ShadowActivity
 import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], qualifiers = "en-w5120dp-h1440dp-mdpi", shadows = [MzdOemReturnTest.MazdaResources::class])
+@Config(sdk = [34], qualifiers = "en-w5120dp-h1440dp-mdpi",
+    shadows = [MzdOemReturnTest.MazdaResources::class, MzdOemReturnTest.MazdaTasks::class])
 class MzdOemReturnTest {
     private lateinit var home: DiPlayActivity
     private lateinit var host: CarPlayHostActivity
@@ -118,6 +121,16 @@ class MzdOemReturnTest {
         assertEquals(0, stops)
     }
 
+    @Test fun oemReturnFinishesAllPagesWithoutTheServiceStoppingTaskRemovalCallback() {
+        val legacy = newHost()
+        listener(host).onHostUiRequested(session)
+        assertClosedWithSessionRetained()
+        assertTrue(legacy.isFinishing)
+        repeat(2) { MzdIntegration.closeWindows() }
+        assertTrue(CarPlayBackgroundSession.hasSession())
+        assertEquals(0, stops)
+    }
+
     private fun newHost() = Robolectric.buildActivity(CarPlayHostActivity::class.java).get().apply {
         hosts.add(this)
         setTheme(R.style.Theme_Xcertplay)
@@ -147,6 +160,13 @@ class MzdOemReturnTest {
         assertSame(controller, CarPlayBackgroundSession.snapshot()!!.controller)
         assertSame(sink, CarPlayBackgroundSession.snapshot()!!.sink)
         assertEquals(0, stops)
+    }
+
+    @Implements(Activity::class)
+    class MazdaTasks : ShadowActivity() {
+        @Implementation override fun finishAndRemoveTask() {
+            throw AssertionError("Removing a UI task invokes DiPlaySessionService.onTaskRemoved and stops CarPlay")
+        }
     }
 
     @Implements(Resources::class)

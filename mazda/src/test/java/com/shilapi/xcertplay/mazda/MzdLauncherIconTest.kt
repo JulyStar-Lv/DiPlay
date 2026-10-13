@@ -1,16 +1,16 @@
 package com.shilapi.xcertplay.mazda
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Rect
-import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
-import android.graphics.drawable.InsetDrawable
-import android.view.Gravity
 import androidx.core.content.ContextCompat
 import com.shilapi.xcertplay.host.R as CommonR
 import java.io.File
+import kotlin.math.abs
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -24,37 +24,27 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class MzdLauncherIconTest {
     @Test @Config(sdk = [25]) fun legacyAndroidCanStillLoadTheLauncherIcon() {
-        assertNotNull(ContextCompat.getDrawable(RuntimeEnvironment.getApplication(), R.drawable.ic_mazda_launcher))
+        assertMatchesReference(reference(cropped = false, size = 128), render(R.drawable.ic_mazda_launcher, 128))
     }
 
-    @Test fun launcherFillsTheOemSlotWhilePageArtworkKeepsItsOriginalMargin() {
+    @Test fun vectorMatchesTheSuppliedArtworkAndLauncherFillsTheOemSlot() {
         for (size in listOf(48, 128, 192)) {
+            val pageReference = reference(cropped = false, size)
+            val launcherReference = reference(cropped = true, size)
             val page = render(CommonR.drawable.ic_carplay, size)
-            val previous = render(previousLauncher(), size)
             val launcher = render(R.drawable.ic_mazda_launcher, size)
-            assertTrue(opaqueBounds(page).width() <= size * .92f)
+            assertMatchesReference(pageReference, page)
+            assertMatchesReference(launcherReference, launcher)
             val bounds = opaqueBounds(launcher)
             assertTrue("$size: $bounds", bounds.width() >= size - 2)
             assertTrue("$size: $bounds", bounds.height() >= size - 2)
+            assertTrue(opaqueBounds(page).width() < bounds.width())
             assertEquals(opaqueBounds(page).centerX(), bounds.centerX())
-            // Preserve every pixel of the original badge, rather than redrawing the logo.
-            for (y in 0 until size) for (x in 0 until size) {
-                val dx = x + .5f - size / 2f
-                val dy = y + .5f - size / 2f
-                if (dx * dx + dy * dy <= size * size * .39f * .39f) {
-                    assertEquals("badge $size ($x,$y)", previous.getPixel(x, y), launcher.getPixel(x, y))
-                }
-            }
-            assertTrue(Color.alpha(launcher.getPixel(0, 0)) < 128)
-            assertTrue((0 until size).any { x ->
-                val pixel = launcher.getPixel(x, size / 2)
-                Color.red(pixel) > 170 && Color.green(pixel) > 230 && Color.blue(pixel) > 190
-            })
-            val comparison = Bitmap.createBitmap(size * 3, size, Bitmap.Config.ARGB_8888)
+            val comparison = Bitmap.createBitmap(size * 4, size, Bitmap.Config.ARGB_8888)
             Canvas(comparison).apply {
-                drawBitmap(page, 0f, 0f, null)
-                drawBitmap(previous, size.toFloat(), 0f, null)
-                drawBitmap(launcher, size * 2f, 0f, null)
+                for ((index, image) in listOf(pageReference, page, launcherReference, launcher).withIndex()) {
+                    drawBitmap(image, index * size.toFloat(), 0f, null)
+                }
             }
             val file = File("build/reports/mazda-ui/launcher-icon-$size.png")
             file.parentFile!!.mkdirs()
@@ -62,30 +52,44 @@ class MzdLauncherIconTest {
         }
     }
 
-    @Test fun cornersMatchTheFileManagerSilhouetteFromTheOemScreenshot() {
+    @Test fun flatWhiteBadgeAndOriginalGradientReplaceTheOldFrame() {
         val icon = render(R.drawable.ic_mazda_launcher, 128)
-        // Observed orange File Manager edge in the 5120x1440 capture, relative to
-        // its 128px icon slot; allow two pixels for capture and alpha-threshold differences.
-        val referenceEdge = listOf(0 to 23, 2 to 15, 6 to 9, 10 to 5, 14 to 3, 18 to 1, 22 to 1, 26 to 0)
-        for ((y, expected) in referenceEdge) {
-            val actual = (0 until 128).first { Color.alpha(icon.getPixel(it, y)) >= 128 }
-            assertEquals("corner row $y", expected.toDouble(), actual.toDouble(), 2.0)
-            val rightMargin = 127 - (0 until 128).last { Color.alpha(icon.getPixel(it, y)) >= 128 }
-            val bottomLeft = (0 until 128).first { Color.alpha(icon.getPixel(it, 127 - y)) >= 128 }
-            val bottomRight = 127 - (0 until 128).last { Color.alpha(icon.getPixel(it, 127 - y)) >= 128 }
-            for (edge in listOf(rightMargin, bottomLeft, bottomRight)) {
-                assertEquals("symmetric corners row $y", actual.toDouble(), edge.toDouble(), 1.0)
-            }
+        assertEquals(Color.WHITE, icon.getPixel(64, 64)) // Play triangle.
+        assertEquals(Color.WHITE, icon.getPixel(29, 64)) // C stroke.
+        assertEquals(0, Color.alpha(icon.getPixel(0, 0)))
+        val top = icon.getPixel(64, 12)
+        val bottom = icon.getPixel(64, 116)
+        assertTrue(Color.red(bottom) > Color.red(top) + 70)
+        assertTrue(Color.blue(bottom) > Color.blue(top) + 50)
+        assertTrue(Color.green(bottom) > Color.green(top))
+    }
+
+    private fun reference(cropped: Boolean, size: Int): Bitmap {
+        val source = requireNotNull(javaClass.getResourceAsStream("/wt_carplay_icon.png")).use {
+            requireNotNull(BitmapFactory.decodeStream(it))
+        }
+        val bounds = if (cropped) Rect(24, 24, 1000, 1000) else Rect(0, 0, 1024, 1024)
+        return Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888).also {
+            Canvas(it).drawBitmap(source, bounds, Rect(0, 0, size, size), Paint(Paint.FILTER_BITMAP_FLAG))
+            source.recycle()
         }
     }
 
-    private fun previousLauncher(): Drawable {
-        val context = RuntimeEnvironment.getApplication()
-        val bitmap = (ContextCompat.getDrawable(context, CommonR.drawable.ic_carplay)!!.mutate() as BitmapDrawable).apply {
-            gravity = Gravity.FILL
-            isFilterBitmap = true
+    private fun assertMatchesReference(expected: Bitmap, actual: Bitmap) {
+        var error = 0L
+        for (y in 0 until expected.height) for (x in 0 until expected.width) {
+            val a = expected.getPixel(x, y)
+            val b = actual.getPixel(x, y)
+            error += abs(Color.alpha(a) - Color.alpha(b))
+            // Compare premultiplied channels so transparent RGB does not affect the score.
+            for (shift in listOf(16, 8, 0)) {
+                error += abs(((a ushr shift) and 255) * Color.alpha(a) / 255 -
+                    ((b ushr shift) and 255) * Color.alpha(b) / 255)
+            }
         }
-        return InsetDrawable(bitmap, -.05172414f)
+        val mean = error.toDouble() / (expected.width * expected.height * 4)
+        // Vector AA and integer launcher insets differ slightly from the supplied 1024px raster.
+        assertTrue("${expected.width}px reference mean channel error: $mean", mean < 8.0)
     }
 
     private fun render(id: Int, size: Int): Bitmap =

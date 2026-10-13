@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Legacy Android cannot inflate fractional insets. Keep a loadable fallback. -->
-<bitmap xmlns:android="http://schemas.android.com/apk/res/android"
-    android:src="@drawable/ic_carplay" android:gravity="fill" android:filter="true" />
+<!-- Android 7 cannot inflate fractional insets; use the same vector with its original margin. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@drawable/ic_carplay" />
+</layer-list>

@@ -5,6 +5,7 @@ import android.content.Context
 import android.view.View
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.AirPlayPersistence
+import com.shilapi.xcertplay.CarPlayHostActivity
 import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 import com.shilapi.xcertplay.network.mazda.MzdCarHotspot
 import java.util.WeakHashMap
@@ -25,8 +26,14 @@ internal object MzdIntegration {
     }
 
     fun closeWindows() {
-        // Both transparent tasks can remain visible on EZ60; the shared session outlives them.
-        windows.keys.toList().forEach { if (!it.isFinishing) it.finish() }
+        // Finish every UI window, including the launcher root in the shared Mazda task.
+        // Do not use finishAndRemoveTask: its service onTaskRemoved callback stops CarPlay.
+        windows.keys.toList().forEach {
+            if (!it.isFinishing) {
+                (it as? CarPlayHostActivity)?.keepMazdaReturnPicture()
+                it.finish()
+            }
+        }
         windows.clear()
     }
 

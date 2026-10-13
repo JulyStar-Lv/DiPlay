@@ -360,8 +360,11 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Back on the home page finishes this activity while the session runs on, so the icon lands here.
-        if (savedInstanceState == null && isLauncherIntent(intent) && CarPlayBackgroundSession.hasSession()) {
+        val returnToProjection = savedInstanceState == null && isLauncherIntent(intent) &&
+            CarPlayBackgroundSession.hasSession()
+        // Mazda keeps the launcher root and projection in one task, so an OEM screen transfer
+        // moves both pages. Other variants retain their separate projection task.
+        if (returnToProjection && !MzdIntegration.enabled(this)) {
             openProjection(); finish(); return
         }
         if (!MzdIntegration.enabled(this)) scheduleBackgroundUpdateChecks()
@@ -411,6 +414,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 else { isEnabled = false; onBackPressedDispatcher.onBackPressed(); isEnabled = true }
             }
         })
+        if (returnToProjection) openProjection()
     }
 
     override fun onNewIntent(intent: Intent) {

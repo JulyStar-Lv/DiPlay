@@ -11,11 +11,13 @@ this Activity guard.
 
 ## Builds
 
-The release application ID is `com.shihab.diplay`, identical to `:mobile`. The version code/name
-come from `:mobile`. Both applications use the existing signing environment variables and
-`DIPLAY_AUTH_ASSETS_DIR`; there is no second signing configuration to provision. A release
-signed with the same certificate can replace the mobile installation and retain its preferences.
-These two release packages cannot be installed side by side.
+The release application ID is `com.thunder.carplay`. The version code/name come from `:mobile`,
+whose application ID remains `com.shihab.diplay`. Both applications use the existing signing
+environment variables and `DIPLAY_AUTH_ASSETS_DIR`; there is no second signing configuration
+to provision. The Mazda release installs as a separate application alongside the mobile release
+or a previous Mazda release with the old ID. It does not upgrade the old package or automatically
+migrate its preferences. The head unit's Launcher lists `com.thunder.carplay` among the packages
+that do not show its floating close button.
 
 Source-only debug build (no CarPlay authentication):
 
@@ -23,7 +25,7 @@ Source-only debug build (no CarPlay authentication):
 ./gradlew :mazda:lintDebug :mazda:assembleDebug
 ```
 
-The debug application ID is `com.shihab.diplay.mazdatest`. For a standalone car-test debug
+The debug application ID is `com.thunder.carplay.mazdatest`. For a standalone car-test debug
 package, set the existing authentication environment and use `:mazda:assembleStandaloneDebug`.
 
 The local `.private` folder contains these release wrappers:
@@ -47,6 +49,15 @@ shared presentation, cockpit container and adapter. `config_mazda` defaults to f
 views and container through this flag; their settings, actions and session state are reused.
 There are no copied Activities, duplicated background-session singletons or activity aliases.
 
+The cockpit container anchors each page to its current OEM task area: the driver half starts
+at physical x=0, and the passenger half starts at x=2560 on the shared 5120px display. It checks
+the window position before drawing, so moving an existing task between equal-sized areas also
+updates its content bounds. Android decor insets are compensated within that area. The driver's
+sidebar signals only shrink pages in the driver area; passenger pages retain the full panel.
+The passenger panel matches the OEM apps' 32px margins on both sides, occupying physical
+`[2592,192][5088,1272]`. Its content remains 2496x1080, the same size as the full driver panel.
+System-bar navigation broadcasts are matched to the window's current area.
+
 The home and connection pages share their typography, artwork and control dimensions. The
 connection page applies the saved interface-size preference to its own UI context, including
 retry and Wi-Fi recovery controls, while the host keeps system metrics for video and touch.
@@ -57,11 +68,12 @@ inset, a centre 64px below the panel top and a 32px gap before the title group. 
 the green CarPlay icon at 40px, followed by the 40px DiPlay title with a 12px gap. These anchors
 stay independent of interface scaling, and the title truncates to fit the available width.
 
-The Mazda launcher icon removes the source artwork's transparent outer margin with a
-drawable wrapper, so its green outline fills the OEM app-centre slot. Its outer background
-uses the OEM app-centre corner proportion (28px in a 128px slot), while a central cutout
-retains the original C/play badge pixels. Page artwork is unchanged.
-The launcher drawable variants and frame live only in `mazda/src/main/res/`; their rendering
+Page artwork and app launcher icons use the vector converted from `docs/assets/WT_CarPlay_icon.svg`,
+retaining its original green gradient, white C/play paths and continuous rounded outline.
+On Android 8 and newer the Mazda launcher wrapper removes the source's 3-unit outer margin
+from its 126-unit viewport to fill the OEM app-centre slot. Android 7 uses the same vector
+with its original margin. No background frame overrides the supplied outline or gradient.
+The Mazda launcher drawable variants live only in `mazda/src/main/res/`; their rendering
 test lives in `mazda/src/test/` and runs with `:mazda:testDebugUnitTest` in CI.
 Disconnecting from Home suppresses the retiring CarPlay window's exit animation; session
 teardown still completes asynchronously before Home re-enables device selection.
@@ -87,8 +99,37 @@ its sidebar (1728×1080). These physical OEM coordinates do not scale with Andro
 Other window sizes use their available bounds. Observers and the navigation broadcast receiver
 are removed when the container detaches. The recognized OEM car-home broadcast closes both
 transparent Activity windows while retaining the shared CarPlay session.
+Visible sidebar changes animate only the panel's left edge using the OEM file manager's
+400 ms accelerate/decelerate transition. Top, bottom and right edges stay fixed, so the
+underlying AppList is not uncovered immediately before the sidebar arrives. Opening directly
+in either shape places the panel immediately; reversing a transition starts at its current edge.
+During that transition the current CarPlay view area uniformly covers the panel, clipping
+overflow rather than shrinking the old wide frame into top/bottom black bars. Video and touch
+use the same transform. At either exact OEM endpoint, the host requests the matching view
+area immediately, without the normal 500 ms resize debounce; intermediate sizes still debounce.
+A blurred, opaque mask fills only the CarPlay viewport from the first sidebar signal, before
+the first animated resize. It remains across the entire window animation and rapid reversals.
+After the endpoint's area command, it waits 450 ms for the iPhone's 300 ms animation and then
+requests a fresh picture. A subsequent texture presentation (or a new rendered SurfaceView
+frame) fades the mask out over 150 ms. Bounded timeouts prevent a stalled frame or missing
+endpoint from leaving the mask stuck. CarPlay touches are paused while it is visible; the OEM
+instrument panel and bottom controls remain outside the mask. Its low-resolution snapshot
+uses centre cropping, with additional RenderEffect blur on API 31 and newer, so a sharp old
+picture is never stretched into the new shape. Missing snapshots use an opaque colour gradient.
+The existing CarPlay resize debounce waits for the final dimensions before changing view area.
 The CarPlay OEM icon uses the same window-closing behavior after its `requestUI` command opens
-the head-unit home screen. Returning to DiPlay reuses the background connection.
+the head-unit home screen. Mazda's launcher root and projection share the application task
+affinity, and the projection uses `singleTop` with reorder-to-front inside that task. An OEM
+screen transfer therefore moves both pages together instead of leaving a second task registered
+on the other half. Returning with a live session keeps the launcher root under the projection.
+Closing finishes every UI activity while retaining the background connection. It does not call
+`finishAndRemoveTask`, which would notify the foreground service to stop the session.
+The next launcher click opens the shared task in the requested area. Other variants retain their separate
+`singleTask` projection. Before closing,
+the owning Mazda host keeps a bounded, in-memory picture in that session. The reopened host
+shows it while its video surface attaches, then fades it away when the new surface presents a
+frame. A different or cleared session discards the picture. Mazda's two Activity themes disable
+the Android starting preview so the launcher handoff does not insert a black window.
 
 Both cockpit shapes are declared as existing CarPlay view areas on the same full-size canvas.
 Starting in the narrow shape declares both shapes too. Sidebar changes use `showViewArea`,

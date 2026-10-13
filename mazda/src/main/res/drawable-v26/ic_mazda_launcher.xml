@@ -1,10 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Fill the OEM slot, then replace only the background outside the central badge. -->
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android" android:paddingMode="stack">
-    <item>
-        <inset android:inset="-5.172414%">
-            <bitmap android:src="@drawable/ic_carplay" android:gravity="fill" android:filter="true" />
-        </inset>
-    </item>
-    <item android:drawable="@drawable/ic_mazda_launcher_frame" />
-</layer-list>
+<!-- The source has a 3-unit margin in a 126-unit viewport. Scale 126 / 120 to fill the OEM slot. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:inset="-2.5%" android:drawable="@drawable/ic_carplay" />

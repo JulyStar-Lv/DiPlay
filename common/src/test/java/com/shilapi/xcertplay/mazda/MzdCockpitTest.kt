@@ -1,6 +1,10 @@
 package com.shilapi.xcertplay.mazda
 
 import android.app.Activity
+import android.animation.ValueAnimator
+import android.content.Intent
+import android.graphics.Rect
+import android.os.Looper
 import android.provider.Settings
 import android.view.View
 import com.shilapi.xcertplay.CarPlayDock
@@ -11,10 +15,181 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.LooperMode
+import org.robolectric.Shadows.shadowOf
+import org.robolectric.shadows.ShadowChoreographer
+import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], manifest = Config.NONE)
 class MzdCockpitTest {
+    @Config(qualifiers = "w5120dp-h1440dp-mdpi", shadows = [MzdOemReturnTest.MazdaResources::class])
+    @Test fun passengerStartupAndSameSizeTaskMovesKeepContentInsideItsOwnArea() {
+        MzdOemReturnTest.MazdaResources.enabled = true
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val child = View(activity)
+        val shell = MzdIntegration.wrap(activity, child) as MzdCarAppLayout
+        val parent = android.widget.FrameLayout(activity).apply {
+            addView(shell, android.widget.FrameLayout.LayoutParams(2560, 1374).apply {
+                leftMargin = 2560
+                topMargin = 66
+            })
+        }
+        fun settle() {
+            repeat(3) {
+                parent.measure(View.MeasureSpec.makeMeasureSpec(5120, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(1440, View.MeasureSpec.EXACTLY))
+                parent.layout(0, 0, 5120, 1440)
+                if (!parent.viewTreeObserver.dispatchOnPreDraw()) return
+            }
+            fail("The panel must settle after the task's screen position changes")
+        }
+        fun visiblePanel(expected: Rect) {
+            val origin = IntArray(2)
+            child.getLocationOnScreen(origin)
+            assertEquals(expected, Rect(origin[0], origin[1], origin[0] + child.width,
+                origin[1] + child.height))
+            val visible = Rect()
+            assertTrue("The content must have a visible area, rather than lie outside its task",
+                child.getGlobalVisibleRect(visible))
+            assertEquals(1080, child.height)
+        }
+        fun navigate(area: String) {
+            activity.sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)
+                .putExtra("reason", "TinnoveCarSystemBarButton").putExtra("task_display_area", area))
+            shadowOf(Looper.getMainLooper()).idle()
+        }
+        try {
+            // These are driver-only settings, even when the app starts on the passenger half.
+            Settings.Global.putInt(activity.contentResolver, "key_screen_show", 1)
+            Settings.Global.putInt(activity.contentResolver, "key_vpa_cui_show_left", 1)
+            activity.setContentView(parent)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertTrue(shell.isAttachedToWindow)
+            settle()
+            visiblePanel(Rect(2592, 192, 5088, 1272))
+            assertEquals(2496, child.width)
+            assertEquals("Match the OEM passenger panel's equal horizontal margins", 32, child.left)
+            assertEquals(32, shell.width - child.right)
+
+            // Reparent the same view without detaching it or changing its measured size.
+            (shell.layoutParams as android.widget.FrameLayout.LayoutParams).leftMargin = 0
+            parent.requestLayout()
+            settle()
+            visiblePanel(Rect(832, 192, 2560, 1272))
+            assertEquals(1728, child.width)
+            navigate("area_right")
+            assertFalse("Passenger navigation must not close the driver window", activity.isFinishing)
+
+            (shell.layoutParams as android.widget.FrameLayout.LayoutParams).leftMargin = 2560
+            parent.requestLayout()
+            settle()
+            visiblePanel(Rect(2592, 192, 5088, 1272))
+            assertEquals(2496, child.width)
+            navigate("area_left")
+            assertFalse("Driver navigation must not close the passenger window", activity.isFinishing)
+            navigate("area_right")
+            assertTrue("Passenger navigation must close its own window", activity.isFinishing)
+        } finally {
+            MzdIntegration.closeWindows()
+            activity.finish()
+            Settings.Global.putInt(activity.contentResolver, "key_screen_show", 0)
+            Settings.Global.putInt(activity.contentResolver, "key_vpa_cui_show_left", 0)
+        }
+    }
+
+    @Config(qualifiers = "w2560dp-h1440dp-mdpi")
+    @LooperMode(LooperMode.Mode.PAUSED)
+    @Test fun sidebarResizeMovesContinuouslyWithoutExposingTheWholeUnderlyingAppListAtOnce() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val child = View(activity)
+        val shell = MzdCarAppLayout(activity).apply { setPanelContent(child) }
+        activity.setContentView(shell)
+        fun layout() {
+            shell.measure(View.MeasureSpec.makeMeasureSpec(2560, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(1440, View.MeasureSpec.EXACTLY))
+            shell.layout(0, 0, 2560, 1440)
+            val origin = IntArray(2)
+            child.getLocationOnScreen(origin)
+            assertEquals(192, origin[1])
+            assertEquals(2560, origin[0] + child.width)
+            assertEquals(1272, origin[1] + child.height)
+            assertEquals(1080, child.height)
+        }
+        fun animator(): ValueAnimator = requireNotNull(ReflectionHelpers.getField(shell, "panelAnimator"))
+        fun signal(key: String, value: Int) {
+            // Layout is driven explicitly below. Release the real ViewRoot's queued traversal
+            // barrier so the paused Choreographer does not block the provider's Handler message.
+            val viewRoot = ReflectionHelpers.callInstanceMethod<Any>(shell, "getViewRootImpl")
+            ReflectionHelpers.callInstanceMethod<Void>(viewRoot, "unscheduleTraversals")
+            Settings.Global.putInt(activity.contentResolver, key, value)
+            // Model the provider notification explicitly; ShadowSettings does not publish every write.
+            activity.contentResolver.notifyChange(Settings.Global.getUriFor(key), null)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(ReflectionHelpers.callInstanceMethod<Boolean>(shell, "readVehiclePanel"),
+                ReflectionHelpers.getField<Boolean>(shell, "vehiclePanel"))
+        }
+        try {
+            // Deliver Settings notifications without Robolectric automatically finishing all frames.
+            ShadowChoreographer.setPaused(true)
+            layout()
+            assertEquals(64, child.left)
+            signal("key_screen_show", 1)
+            val shrinking = animator()
+            shrinking.pause()
+            assertEquals(400L, shrinking.duration)
+            shrinking.currentPlayTime = 0
+            layout()
+            assertEquals("Keep covering AppList while the OEM sidebar starts entering", 64, child.left)
+            shrinking.currentPlayTime = 100
+            layout()
+            assertTrue(child.left in 65..447)
+            shrinking.currentPlayTime = 200
+            layout()
+            assertEquals(448, child.left)
+            // The two OEM signals share one transition; a second true signal must not restart it.
+            signal("key_vpa_cui_show_left", 1)
+            assertSame(shrinking, animator())
+            shrinking.currentPlayTime = 400
+            layout()
+            assertEquals(832, child.left)
+            signal("key_screen_show", 0)
+            assertSame(shrinking, animator())
+            signal("key_vpa_cui_show_left", 0)
+            val expanding = animator()
+            assertNotSame(shrinking, expanding)
+            expanding.pause()
+            expanding.currentPlayTime = 200
+            layout()
+            assertEquals(448, child.left)
+            val reversalLeft = child.left
+            // Reverse a live animation from its displayed edge, without snapping to either endpoint.
+            signal("key_screen_show", 1)
+            val reversed = animator()
+            assertNotSame(expanding, reversed)
+            reversed.pause()
+            reversed.currentPlayTime = 0
+            layout()
+            assertEquals(reversalLeft, child.left)
+            assertEquals(400L * (832 - reversalLeft) / 768, reversed.duration)
+            reversed.currentPlayTime = reversed.duration
+            layout()
+            assertEquals(832, child.left)
+            // Removing the window cancels its animation and callbacks.
+            signal("key_screen_show", 0)
+            val retiring = animator()
+            assertTrue(retiring.isRunning)
+            activity.setContentView(View(activity))
+            assertFalse(retiring.isRunning)
+            assertNull(ReflectionHelpers.getField<ValueAnimator?>(shell, "panelAnimator"))
+        } finally {
+            activity.finish()
+            Settings.Global.putInt(activity.contentResolver, "key_screen_show", 0)
+            Settings.Global.putInt(activity.contentResolver, "key_vpa_cui_show_left", 0)
+            ShadowChoreographer.setPaused(false)
+        }
+    }
+
     @Test fun oemPanelCoordinatesFollowBothSidebarSignalsAndOrdinaryWindowsStayWhole() {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
         assertFalse(MzdIntegration.enabled(activity))

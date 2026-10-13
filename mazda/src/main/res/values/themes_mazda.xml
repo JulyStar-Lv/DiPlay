@@ -1,0 +1,7 @@
+<resources>
+    <!-- The launcher can immediately forward to the retained CarPlay session. Keep the OEM
+         desktop visible until that Activity draws its cached picture, instead of a black preview. -->
+    <style name="Theme.Xcertplay.Mazda" parent="Theme.Xcertplay">
+        <item name="android:windowDisablePreview">true</item>
+    </style>
+</resources>

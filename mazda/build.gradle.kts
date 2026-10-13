@@ -29,7 +29,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.shihab.diplay"
+        applicationId = "com.thunder.carplay"
         minSdk = 25
         targetSdk = 37
         versionCode = mobileConfig.versionCode
