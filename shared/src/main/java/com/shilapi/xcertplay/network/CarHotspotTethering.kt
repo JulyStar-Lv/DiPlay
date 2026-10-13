@@ -64,7 +64,8 @@ object CarHotspotTethering {
                     if (access != null && access != LocalAdb.Access.READY) log("car hotspot: ADB access=$access")
                     if (access != LocalAdb.Access.READY) false
                     else CarHotspotAdbFallback.start(deadline, isCancelled,
-                        state = { CarHotspotStatus.isEnabled(context) }, shell = adb::shell, log = log)
+                        state = { CarHotspotStatus.isEnabled(context) }, shell = adb::shell, log = log,
+                        helper = shellTetheringHelper(context))
                         .also { if (it) observedAdbState.set(true) }
                 }
             }
@@ -82,6 +83,9 @@ object CarHotspotTethering {
             log("car hotspot auto-enable: ${it.diagnostic}")
         }
     }
+
+    /** The shell's own tethering call ([CarHotspotStartMain]), for firmware without a hotspot command. */
+    private fun shellTetheringHelper(context: Context): String = CarHotspotStartMain.command(context.applicationInfo.sourceDir)
 
     internal fun describe(error: Throwable): String {
         val cause = (error as? InvocationTargetException)?.targetException ?: error

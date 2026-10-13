@@ -799,6 +799,7 @@
     <string name="settings_speech_without_low_rates">صوت ملاحة أوضح عبر USB (تجريبي)</string>
     <string name="settings_speech_without_low_rates_description">عبر USB قد يرسل iPhone تعليمات الملاحة وردود Siri المنطوقة بجودة هاتفية 8 كيلوهرتز. يوقف هذا الخيار عرض 8 و16 كيلوهرتز لهذا الصوت ليختار iPhone معدلاً أعلى. إذا اختفت التعليمات الصوتية، فأوقفه. يعيد توصيل CarPlay.</string>
     <string name="bluetooth_connections_not_real">يُبلغ بلوتوث Android في وحدة القيادة هذه عن اتصال، لكن لا شيء يصل إلى iPhone: حتى الاتصال بخدمة غير موجودة ينجح. البلوتوث هنا يديره مكوّن خاص بالشركة المصنّعة لا تستطيع التطبيقات استخدامه، لذلك لا يمكن أن يعمل CarPlay اللاسلكي على وحدة القيادة هذه. جرّب اتصال USB.</string>
+    <string name="bluetooth_cannot_open_connections">لا يستطيع بلوتوث Android في وحدة القيادة هذه فتح اتصالات للتطبيقات: ينقص البرنامج الثابت الجزء الذي تتصل عبره التطبيقات. المكالمات والموسيقى عبر بلوتوث السيارة نفسه لا تتأثر، لكن لا يمكن أن يعمل CarPlay اللاسلكي على وحدة القيادة هذه. جرّب اتصال USB.</string>
     <string name="settings_fce_cluster_guidance">الإرشاد في عدادات FCE (تجريبي)</string>
     <string name="settings_fce_cluster_guidance_description">يعرض أسهم CarPlay ومسافة المنعطف التالي في واجهة الملاحة بلوحة العدادات على وحدات FCE، عبر الكتابة إلى خدمة المركبة في الوحدة. جُرّب على سيارة واحدة فقط؛ أوقفه إذا تصرفت لوحة العدادات بشكل غير متوقع.</string>
     <string name="settings_cluster_music">الموسيقى في لوحة العدادات (تجريبي)</string>
@@ -871,4 +872,7 @@
     <string name="connection_help_existing_wifi">تأكد من اتصال وحدة السيارة وiPhone بشبكة Wi-Fi نفسها وأن اسمها وكلمة مرورها يطابقان إعدادات DiPlay، ثم أعد المحاولة.</string>
     <string name="settings_report_on_phone">الحصول على التقرير عبر هاتف</string>
     <string name="settings_report_on_phone_hint">امسح الرمز بكاميرا الهاتف لفتح هذه الصفحة في متصفحه، ثم اختر «تنزيل التقرير». أبقِ هذه الشاشة مفتوحة حتى يكتمل التنزيل.</string>
+    <string name="settings_mfi_target_description">اختر USB/CH341 فقط عندما يكون محوّل مصادقة CH341 متصلًا بوحدة الوسائط. بدونه، اختر «محلي دون اتصال». يُطبَّق عند الاتصال التالي.</string>
+    <string name="settings_call_speakerphone">المكالمات عبر مكبّر الصوت</string>
+    <string name="settings_call_speakerphone_description">لهاتف أو جهاز لوحي بنظام Android يُستخدم كوحدة وسائط: يشغّل مكالمات CarPlay عبر مكبّر الصوت بدلًا من سمّاعة الأذن ويستخدم ميكروفون التحدث الحر. اتركه متوقفًا في وحدة وسائط السيارة. يُطبَّق من المكالمة التالية.</string>
 </resources>

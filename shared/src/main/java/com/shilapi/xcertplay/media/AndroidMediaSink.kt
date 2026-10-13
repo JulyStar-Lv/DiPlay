@@ -199,6 +199,8 @@ class AndroidMediaSink(
     private val callEchoCancellation: Boolean = false,
     /** Cut the bass that head units add when they play a call as music. */
     private val callVoiceFilter: Boolean = false,
+    /** Read at each call: a phone or tablet used as the head unit plays calls on its loudspeaker (#701). */
+    private val callSpeakerphone: () -> Boolean = { false },
     /**
      * Smooth video: show main-screen frames at the iPhone's frame time plus a delay that starts here and
      * then follows how late the decoder releases frames ([PacingDelay]); 0 shows each as soon as it is
@@ -256,6 +258,7 @@ class AndroidMediaSink(
     private val audioModeLock = Any()
     private var communicationModeStream: AudioStreamId? = null
     private var savedAudioMode = AudioManager.MODE_NORMAL
+    private var callSpeaker: CallSpeaker? = null // guarded by audioModeLock
     private val pendingVideoCodec = ConcurrentHashMap<Int, VideoCodec>()
     private val videoRecoveryHandlers = ConcurrentHashMap<Int, () -> Unit>()
     private val videoDiagnosticHandlers = ConcurrentHashMap<Int, (String) -> Unit>()
@@ -557,13 +560,16 @@ class AndroidMediaSink(
             savedAudioMode = manager.mode
             manager.mode = AudioManager.MODE_IN_COMMUNICATION
             communicationModeStream = id
+            val speakerRequested = runCatching(callSpeakerphone).getOrDefault(false)
+            if (speakerRequested) callSpeaker = CallSpeaker.on(manager)
             Log.i("xcertplay-usb", "audio mode $savedAudioMode -> ${manager.mode} for telephony stream=$id")
             // The report, not just logcat: a head unit left in the voice path plays no media,
             // and that cannot be diagnosed from a car without adb. A failing report must not
             // disturb the mode, so it is the last thing done and it cannot throw out of here.
             runCatching {
                 onAudioDiagnostic("Audio: mode entered communication from=$savedAudioMode" +
-                    " now=${manager.mode} stream=$id")
+                    " now=${manager.mode} stream=$id" +
+                    if (speakerRequested) " loudspeaker=${callSpeaker != null}" else "")
             }
         }
     }
@@ -574,6 +580,8 @@ class AndroidMediaSink(
             val active = communicationModeStream ?: return
             if (id != null && id != active) return
             communicationModeStream = null
+            callSpeaker?.restore()
+            callSpeaker = null
             // The report is built inside the try but sent outside it: reporting from in there
             // would let a failing callback be caught as a failed restore.
             val line = try {

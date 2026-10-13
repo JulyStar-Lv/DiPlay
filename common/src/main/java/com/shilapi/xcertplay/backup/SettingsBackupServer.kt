@@ -69,8 +69,9 @@ class SettingsBackupServer(
         return try {
             socket.apply {
                 reuseAddress = true
-                // Anyone on the car's network can reach it, so it does not wait for them forever.
-                soTimeout = idleTimeoutMillis
+                // accept() wakes up regularly: closing a socket that another thread waits in accept() on
+                // waits for that accept() on some JVMs (a test hung for its whole idle timeout on macOS).
+                soTimeout = minOf(idleTimeoutMillis, ACCEPT_POLL_MILLIS)
                 bind(InetSocketAddress(port), BACKLOG)
             }
         } catch (_: Exception) {
@@ -112,18 +113,21 @@ class SettingsBackupServer(
     }
 
     private fun loop() {
+        var lastConnection = System.nanoTime()
         while (!closed) {
             val socket = try {
                 server?.accept()
             } catch (_: SocketTimeoutException) {
-                if (!closed) {
-                    stop()
-                    onIdle?.invoke()
-                }
+                // Anyone on the car's network can reach it, so it does not wait for them forever.
+                if (closed) break
+                if (System.nanoTime() - lastConnection < TimeUnit.MILLISECONDS.toNanos(idleTimeoutMillis.toLong())) continue
+                stop()
+                onIdle?.invoke()
                 null
             } catch (_: Exception) {
                 null
             } ?: break
+            lastConnection = System.nanoTime()
             try {
                 connections?.execute { handle(socket) } ?: socket.close()
             } catch (_: RejectedExecutionException) {
@@ -259,6 +263,7 @@ class SettingsBackupServer(
         /** More than a browser opens to one host; the rest are refused rather than queued. */
         private const val MAX_CONNECTIONS = 16
         const val IDLE_TIMEOUT_MILLIS = 10 * 60_000
+        private const val ACCEPT_POLL_MILLIS = 250
         private const val MAX_REQUEST = 2 shl 20
         const val EXPORT_FILE = "diplay-settings.json"
         const val REPORT_FILE = "diplay-report.txt"

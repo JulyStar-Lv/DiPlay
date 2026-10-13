@@ -81,7 +81,7 @@
     <string name="audio_saved_value">已儲存：%1$d</string>
     <string name="about_public_preview_prefix">公開預覽\u0020·\u0020%1$s</string>
     <string name="msg_car_hotspot_connect">DiPlay 透過車機熱點「%1$s」連線。請在車機設定中開啟熱點後再連線。</string>
-    <string name="edit_saved_hotspot_prefix">編輯已儲存的熱點 · </string>
+    <string name="edit_saved_hotspot_prefix">編輯已儲存的熱點 ·\u0020</string>
     <string name="cluster_adb_multi_device">如果 ADB 列出多個裝置，請使用 adb -s &lt;car-device-ID&gt; shell appops set %1$s GET_USAGE_STATS allow。使用 adb devices 查詢 ID。</string>
     <string name="status_ready_for_prefix">已準備連線：</string>
     <string name="audio_stream_unavailable">音訊串流類型 %1$d 在此無法使用（狀態=%2$s）</string>
@@ -859,6 +859,7 @@
     <string name="settings_speech_without_low_rates">USB 下更清晰的導航語音（實驗性）</string>
     <string name="settings_speech_without_low_rates_description">USB 連線時，iPhone 可能以 8 kHz 電話音質傳送導航播報和 Siri 的語音回答。開啟後不再為這類聲音提供 8 和 16 kHz，讓 iPhone 選擇更高的取樣率。如果播報沒有聲音，請關閉。會重新連線 CarPlay。</string>
     <string name="bluetooth_connections_not_real">此車機的系統藍牙回報「已連線」，但實際上沒有連到 iPhone：連一個不存在的服務也回報成功。這裡的藍牙由廠商自己的模組處理，App 無法使用，所以此車機無法使用無線 CarPlay。請嘗試使用 USB 連線。</string>
+    <string name="bluetooth_cannot_open_connections">此車機的系統藍牙無法替 App 建立連線：韌體沒有提供 App 連線要用的那一部分。車機自己的藍牙通話和音樂不受影響，但此車機無法使用無線 CarPlay。請嘗試使用 USB 連線。</string>
     <string name="settings_fce_cluster_guidance">FCE 儀表導航（實驗性）</string>
     <string name="settings_fce_cluster_guidance_description">在 FCE 平台車機上，透過車機的車輛服務把 CarPlay 轉向箭頭和到下一路口的距離顯示在儀表的導航畫面。僅在一輛車上測試過；如果儀表顯示異常，請關閉。</string>
     <string name="settings_cluster_music">儀表音樂（實驗性）</string>
@@ -882,4 +883,7 @@
     <string name="connection_help_existing_wifi">請確認車機和 iPhone 連線的是同一個 Wi-Fi 網路，且網路名稱和密碼與 DiPlay 設定相同，再重試。</string>
     <string name="settings_report_on_phone">在手機上取得報告</string>
     <string name="settings_report_on_phone_hint">用手機相機掃碼，在瀏覽器中開啟此頁面，然後選擇「下載報告」。下載完成前請保持此畫面開啟。</string>
+    <string name="settings_mfi_target_description">只有車機上插著 CH341 認證轉接器時才選擇 USB/CH341。沒有轉接器時請選擇「本機離線」。下次連線時生效。</string>
+    <string name="settings_call_speakerphone">通話使用揚聲器</string>
+    <string name="settings_call_speakerphone_description">適用於當作車機的 Android 手機或平板：CarPlay 通話從揚聲器播放而不是聽筒，並使用免持麥克風。車機上請保持關閉。從下一次通話開始生效。</string>
 </resources>

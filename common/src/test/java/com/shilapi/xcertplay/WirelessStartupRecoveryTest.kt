@@ -6,8 +6,10 @@ import android.view.View
 import android.widget.Button
 import android.widget.TextView
 import com.shilapi.xcertplay.host.R
+import com.shilapi.xcertplay.network.WirelessStartupException
 import com.shilapi.xcertplay.network.WirelessStartupFailure
 import com.shilapi.xcertplay.orchestration.CarPlayStatus
+import com.shilapi.xcertplay.transport.BluetoothLinkCheck
 import com.shilapi.xcertplay.transport.BluetoothRadioCheck
 import org.junit.After
 import org.junit.Assert.*
@@ -83,6 +85,22 @@ class WirelessStartupRecoveryTest {
     @Test fun bluetoothThatReachesNoPhoneDoesNotAutomaticallyRetry() {
         report(status = CarPlayStatus.Failed("Android Bluetooth on this head unit reports connections that are not real",
             startupFailure = WirelessStartupFailure.BLUETOOTH_UNUSABLE))
+        assertEquals(0, budget().retries)
+        assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
+        assertTrue(ReflectionHelpers.getField(activity, "startupRetryStopped"))
+        assertEquals(View.VISIBLE, retry.visibility)
+    }
+
+    // Issue 709: every connect fails inside Android. The iPhone is not what is missing, and no retry helps.
+    @Test fun bluetoothThatCannotOpenConnectionsSaysSoAndDoesNotRetry() {
+        val stage = TextView(activity)
+        ReflectionHelpers.setField(activity, "stageStatusView", stage)
+        val failure = BluetoothLinkCheck.connectFailure(NullPointerException("Attempt to invoke interface method " +
+            "'android.os.ParcelFileDescriptor android.bluetooth.IBluetoothSocketManager.connectSocket(" +
+            "android.bluetooth.BluetoothDevice, int, android.os.ParcelUuid, int, int)' on a null object reference"),
+            "phone-address") as WirelessStartupException
+        report(status = CarPlayStatus.Failed(failure.message!!, startupFailure = failure.reason))
+        assertEquals(activity.getString(R.string.bluetooth_cannot_open_connections), stage.text.toString())
         assertEquals(0, budget().retries)
         assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
         assertTrue(ReflectionHelpers.getField(activity, "startupRetryStopped"))

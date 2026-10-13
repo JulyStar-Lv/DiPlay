@@ -327,7 +327,10 @@ class AdaptiveSettingsUiTest {
         assertTrue(texts(screen).any { it.text.startsWith(screen.getString(R.string.frame_rate) + " · ") })
     }
 
-    @Test fun headerSearchBoxListsMatchesAsYouTypeAndOpensTheChosenSetting() {
+    // Android 7.1 and 9 too: the result list once called a PopupWindow method that Android 10 added.
+    @Test
+    @Config(sdk = [25, 28, 29])
+    fun headerSearchBoxListsMatchesAsYouTypeAndOpensTheChosenSetting() {
         val screen = openSettings()
         fun box() = descendants(screen.window.decorView).filterIsInstance<EditText>()
             .single { it.contentDescription == screen.getString(R.string.settings_search) }
@@ -353,6 +356,8 @@ class AdaptiveSettingsUiTest {
         assertTrue(box().hasFocus())
         val popup = ReflectionHelpers.getField<PopupWindow>(screen, "settingsSearchPopup")
         assertTrue(popup.isShowing)
+        // The list's position is worked out in screen coordinates, so it is laid out in the screen.
+        assertTrue(ReflectionHelpers.getField<Boolean>(popup, "mLayoutInScreen"))
         val row = descendants(popup.contentView).first {
             it.isClickable && it.contentDescription?.startsWith(screen.getString(R.string.frame_rate) + ", ") == true
         }
@@ -680,6 +685,9 @@ class AdaptiveSettingsUiTest {
         val vehicle = visibleIn(R.string.settings_vehicle)
         val advanced = visibleIn(R.string.settings_advanced)
         val connection = visibleIn(R.string.connection)
+
+        assertTrue(display.any { it.startsWith(text(R.string.carplay_dock)) })
+        assertFalse(vehicle.any { it.startsWith(text(R.string.carplay_dock)) })
 
         assertTrue(connection.any { it.startsWith(text(R.string.settings_usb_charging)) })
         assertFalse(advanced.any { it.startsWith(text(R.string.settings_usb_charging)) })

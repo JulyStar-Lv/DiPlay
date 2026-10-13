@@ -369,6 +369,8 @@
     <string name="settings_navigation">ナビゲーション</string>
     <string name="settings_vehicle">車両</string>
     <string name="settings_advanced">詳細設定</string>
+    <string name="settings_more">その他</string>
+    <string name="settings_swipe_advanced">詳細設定（実験的機能）</string>
     <string name="settings_advanced_subtitle">上級者向けの実験的機能と車種固有の設定</string>
     <string name="settings_advanced_caution_title">変更時は注意してください</string>
     <string name="settings_advanced_caution_description">車両のファームウェア、ADB権限、実験段階のCarPlay機能に依存する項目があります。通常使用する設定は上の各カテゴリにあります。</string>
@@ -899,6 +901,7 @@
     <string name="settings_speech_without_low_rates">USBナビ案内の音声を明瞭にする（実験的機能）</string>
     <string name="settings_speech_without_low_rates_description">USBではiPhoneのナビ案内やSiriの応答が電話品質の8 kHz音声で送信される場合があります。8 kHzと16 kHzを使用候補から外し、より高い音質を選ばせます。案内音声が出なくなったらオフにしてください。CarPlayを再接続します。</string>
     <string name="bluetooth_connections_not_real">この車載端末のAndroid Bluetoothは接続中と報告しますが、iPhoneには実際の通信が届きません。存在しないサービスへの接続さえ成功と表示されます。メーカー独自のBluetoothモジュールをアプリが利用できないため、この端末ではワイヤレスCarPlayを使用できません。USB接続をお試しください。</string>
+    <string name="bluetooth_cannot_open_connections">この車載端末のAndroid Bluetoothはアプリからの接続を開始できません。アプリが接続に使う部分がファームウェアにありません。車載Bluetoothの通話と音楽には影響しませんが、この端末ではワイヤレスCarPlayを使用できません。USB接続をお試しください。</string>
     <string name="settings_fce_cluster_guidance">FCEメーターへの案内表示（実験的機能）</string>
     <string name="settings_fce_cluster_guidance_description">FCE車載端末の車両サービスに情報を書き込み、CarPlayの案内矢印と次の曲がり角までの距離をメーターのナビ画面に表示します。実車検証は1台のみです。メーターに異常が起きたらオフにしてください。</string>
     <string name="settings_cluster_music">メーターに音楽を表示（実験的機能）</string>
@@ -922,4 +925,7 @@
     <string name="connection_help_existing_wifi">車載端末とiPhoneが同じWi-Fiネットワークに接続され、その名前とパスワードがDiPlayの設定と一致しているか確認して、再試行してください。</string>
     <string name="settings_report_on_phone">スマートフォンでレポートを取得</string>
     <string name="settings_report_on_phone_hint">スマートフォンのカメラでQRコードを読み取って、ブラウザーでページを開き、「レポートをダウンロード」を選んでください。ダウンロードが終わるまでこの画面を開いたままにしてください。</string>
+    <string name="settings_mfi_target_description">USB/CH341 は、CH341 認証アダプターを車載機に接続しているときだけ選択してください。接続していない場合は「ローカル／オフライン」を選択します。次回の接続から適用されます。</string>
+    <string name="settings_call_speakerphone">通話をスピーカーで再生</string>
+    <string name="settings_call_speakerphone_description">車載機として使う Android スマートフォンやタブレット向け：CarPlay の通話を受話口ではなくスピーカーで再生し、ハンズフリー用マイクを使います。車の車載機ではオフのままにしてください。次の通話から適用されます。</string>
 </resources>
