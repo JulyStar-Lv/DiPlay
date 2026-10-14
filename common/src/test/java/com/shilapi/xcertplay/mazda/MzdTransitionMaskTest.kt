@@ -55,8 +55,9 @@ class MzdTransitionMaskTest {
         assertTrue(mask.isShowing)
         assertEquals(1f, mask.view.alpha, 0f)
         assertNotNull(mask.view.background)
-        assertNull(mask.view.drawable)
-        assertEquals(ImageView.ScaleType.CENTER_CROP, mask.view.scaleType)
+        assertNull(mask.picture.drawable)
+        assertEquals(ImageView.ScaleType.FIT_XY, mask.picture.scaleType)
+        assertEquals(ImageView.ScaleType.FIT_XY, mask.blur.scaleType)
         assertTrue(root.indexOfChild(output) < root.indexOfChild(mask.view))
         assertTrue(root.indexOfChild(mask.view) < root.indexOfChild(touches))
         for (width in listOf(2496, 2384, 2112, 1840, 1728, 2112, 2496)) {
@@ -70,7 +71,8 @@ class MzdTransitionMaskTest {
         }
         val picture = Bitmap.createBitmap(24, 15, Bitmap.Config.ARGB_8888)
         callbacks.single()(picture)
-        assertSame(picture, (mask.view.drawable as BitmapDrawable).bitmap)
+        assertSame(picture, (mask.picture.drawable as BitmapDrawable).bitmap)
+        assertNotNull(mask.blur.drawable)
     }
 
     @Test fun endpointWaitsForTheIphoneAnimationAndThenANewTexturePresentation() {
@@ -102,7 +104,12 @@ class MzdTransitionMaskTest {
         assertTrue(mask.isShowing)
         assertEquals(1f, mask.view.alpha, 0f)
         oldCapture(Bitmap.createBitmap(24, 15, Bitmap.Config.ARGB_8888))
-        assertNull(mask.view.drawable)
+        assertNull(mask.picture.drawable)
+        val newCapture = callbacks.last()
+        assertNotSame("A reversal must replace a snapshot that has not arrived", oldCapture, newCapture)
+        val replacement = Bitmap.createBitmap(24, 15, Bitmap.Config.ARGB_8888)
+        newCapture(replacement)
+        assertSame(replacement, (mask.picture.drawable as BitmapDrawable).bitmap)
         mask.settle()
         idle(450)
         mask.textureUpdated()
@@ -111,7 +118,7 @@ class MzdTransitionMaskTest {
         mask.dispose()
         oldCapture(Bitmap.createBitmap(24, 15, Bitmap.Config.ARGB_8888))
         assertNull(mask.view.parent)
-        assertNull(mask.view.drawable)
+        assertNull(mask.picture.drawable)
     }
 
     @Test fun surfaceFramesMustAdvanceAfterTheGuardAndBothMissingFramesAndMissingEndpointsTimeOut() {

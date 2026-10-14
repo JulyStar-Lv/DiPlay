@@ -675,7 +675,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         scroll.addView(content)
         val header = if (page == "settings") settingsHeader(compact) else standardHeader(compact)
         val root: View = if (page == "home" && MzdIntegration.enabled(this)) {
-            MzdHomeView(this, appNight, MzdIntegration::closeWindows,
+            MzdHomeView(this, appNight, { MzdIntegration.exitApp(this) },
                 settings = { page = "settings"; render() },
                 connect = { if (CarPlayBackgroundSession.hasSession()) openProjection() else connect(true) },
                 phoneSessionAction = ::onHomePhoneSessionClick, usb = { connect(false) },

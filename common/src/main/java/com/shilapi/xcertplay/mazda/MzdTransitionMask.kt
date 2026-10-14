@@ -2,10 +2,7 @@ package com.shilapi.xcertplay.mazda
 
 import android.graphics.Bitmap
 import android.graphics.Color
-import android.graphics.RenderEffect
-import android.graphics.Shader
 import android.graphics.drawable.GradientDrawable
-import android.os.Build
 import android.os.Handler
 import android.view.View
 import android.widget.FrameLayout
@@ -21,17 +18,24 @@ internal class MzdTransitionMask(
     private val renderedFrames: () -> Long,
     private val textureOutput: Boolean,
 ) {
-    val view = ImageView(parent.context).apply {
-        scaleType = ImageView.ScaleType.CENTER_CROP
+    val picture = ImageView(parent.context).apply {
+        scaleType = ImageView.ScaleType.FIT_XY
+    }
+    val blur = ImageView(parent.context).apply {
+        scaleType = ImageView.ScaleType.FIT_XY
+        alpha = 0.92f
+    }
+    val view = FrameLayout(parent.context).apply {
         isClickable = false
         isFocusable = false
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
             intArrayOf(Color.rgb(31, 54, 73), Color.rgb(14, 28, 46)))
         foreground = android.graphics.drawable.ColorDrawable(0x330D1725)
-        if (Build.VERSION.SDK_INT >= 31) {
-            setRenderEffect(RenderEffect.createBlurEffect(24f, 24f, Shader.TileMode.CLAMP))
-        }
+        // Stretch the complete active picture horizontally as the window widens. The tiny,
+        // filtered overlay supplies blur without a RenderEffect layer cached at the old width.
+        addView(picture, FrameLayout.LayoutParams(-1, -1))
+        addView(blur, FrameLayout.LayoutParams(-1, -1))
         visibility = View.GONE
     }
     val isShowing: Boolean get() = view.visibility == View.VISIBLE
@@ -74,10 +78,12 @@ internal class MzdTransitionMask(
         view.visibility = View.VISIBLE
         // Covers missing endpoints too (e.g. the OEM moves the task during the animation).
         handler.postDelayed(timeout, START_TIMEOUT_MILLIS)
-        if (!alreadyShowing) capture { picture ->
-            if (generation == token && isShowing && picture != null && !picture.isRecycled) {
-                view.setImageBitmap(picture)
-                (view.drawable as? android.graphics.drawable.BitmapDrawable)?.isFilterBitmap = true
+        if (!alreadyShowing || picture.drawable == null) capture { captured ->
+            if (generation == token && isShowing && captured != null && !captured.isRecycled) {
+                picture.setImageBitmap(captured)
+                val height = (SNAPSHOT_WIDTH * captured.height / captured.width).coerceAtLeast(1)
+                blur.setImageBitmap(Bitmap.createScaledBitmap(captured, SNAPSHOT_WIDTH, height, true))
+                (blur.drawable as? android.graphics.drawable.BitmapDrawable)?.isFilterBitmap = true
             }
         }
     }
@@ -101,7 +107,7 @@ internal class MzdTransitionMask(
         cancelCallbacks()
         view.animate().cancel()
         view.visibility = View.GONE
-        view.setImageDrawable(null)
+        clearPicture()
         parent.removeView(view)
     }
 
@@ -113,7 +119,7 @@ internal class MzdTransitionMask(
         view.animate().alpha(0f).setDuration(FADE_MILLIS).withEndAction {
             if (generation == token) {
                 view.visibility = View.GONE
-                view.setImageDrawable(null)
+                clearPicture()
             }
         }.start()
     }
@@ -124,8 +130,13 @@ internal class MzdTransitionMask(
         handler.removeCallbacks(timeout)
     }
 
+    private fun clearPicture() {
+        picture.setImageDrawable(null)
+        blur.setImageDrawable(null)
+    }
+
     companion object {
-        // A tiny, filtered snapshot also supplies blur on head units before RenderEffect (API 31).
+        // A tiny, filtered image supplies the same blur on all supported head units.
         const val SNAPSHOT_WIDTH = 24
         private const val VIDEO_SETTLE_MILLIS = 450L
         private const val FRAME_POLL_MILLIS = 50L

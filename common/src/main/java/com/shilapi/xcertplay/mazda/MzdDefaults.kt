@@ -11,6 +11,9 @@ internal object MzdDefaults {
     fun initialize(context: Context) {
         // These keys belong to AirPlayPersistence; keep its existing readers and writers unchanged.
         val preferences = context.getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE)
+        // Also seed upgrades already initialized by an earlier Mazda build. Explicit choices
+        // (including off) are retained, and this only applies at the next CarPlay connection.
+        if (!preferences.contains("mtk_decoder_tuning")) AirPlayPersistence.saveMtkDecoderTuning(context, true)
         if (preferences.getBoolean("mazda_defaults_initialized", false)) return
         if (!preferences.contains("hide_top_bar")) AirPlayPersistence.saveHideTopBar(context, false)
         if (!preferences.contains("hide_bottom_bar")) AirPlayPersistence.saveHideBottomBar(context, false)

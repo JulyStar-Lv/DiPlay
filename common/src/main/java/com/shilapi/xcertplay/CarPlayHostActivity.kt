@@ -5,6 +5,7 @@ import com.shilapi.xcertplay.mazda.MzdCarAppLayout
 import com.shilapi.xcertplay.mazda.MzdConnectionView
 import com.shilapi.xcertplay.mazda.MzdViewAreas
 import com.shilapi.xcertplay.mazda.MzdVideoLayout
+import com.shilapi.xcertplay.mazda.MzdTransitionPicture
 import com.shilapi.xcertplay.mazda.MzdTransitionMask
 import com.shilapi.xcertplay.mazda.MzdHotspotConnection
 import com.shilapi.xcertplay.network.WirelessHotspotInfo
@@ -1921,7 +1922,7 @@ class CarPlayHostActivity : ComponentActivity() {
         connectionPanel = viewport
         updateDebugOverlays()
         if (MzdIntegration.enabled(this)) {
-            val mazda = MzdConnectionView(preparationContext, appNight, MzdIntegration::closeWindows,
+            val mazda = MzdConnectionView(preparationContext, appNight, { MzdIntegration.exitApp(this) },
                 settings = { showDiPlayHome("settings") }, back = { showDiPlayHome() }, wireless = wirelessEnabled)
             mazda.addRecovery(recovery)
             mazda.addRecovery(retry)
@@ -5026,18 +5027,25 @@ class CarPlayHostActivity : ComponentActivity() {
                 }
             }
 
-            override fun onHostUiRequested(session: AirPlaySession) {
+            override fun onHostUiRequested(session: AirPlaySession): Boolean {
+                if (!MzdIntegration.enabled(this@CarPlayHostActivity)) return false
                 runOnUiThread {
-                    if (!MzdIntegration.enabled(this@CarPlayHostActivity)) return@runOnUiThread
-                    // A reused background session may not emit onSessionActive again.
-                    val active = activeAirPlaySession
-                    if (controllerGeneration != restartGeneration || (active != null && active !== session) ||
-                        isFinishing || isDestroyed || !CarPlayBackgroundSession.isOwner(this@CarPlayHostActivity)) return@runOnUiThread
-                    // The controller already opens HOME; EZ60 can leave both transparent tasks above it.
-                    // Close their windows without stopping the shared CarPlay session.
-                    MzdIntegration.closeWindows()
+                    // OEM is a controller-wide command. It may arrive on a control connection
+                    // other than the video session cached by this UI. The controller filters old
+                    // wireless runs; here validate only this UI generation and its ownership.
+                    if (controllerGeneration != restartGeneration || isFinishing || isDestroyed ||
+                        !CarPlayBackgroundSession.isOwner(this@CarPlayHostActivity)) {
+                        Log.i("DiPlayUi", "OEM request ignored: stale UI generation/owner or closing window")
+                        return@runOnUiThread
+                    }
+                    // Match the home page's close button: reveal the existing Launcher page
+                    // (including AppList) without navigating HOME or stopping CarPlay.
+                    Log.i("DiPlayUi", "OEM exit requested; closing DiPlay and retaining CarPlay session")
+                    MzdIntegration.exitApp(this@CarPlayHostActivity)
                     if (!isFinishing) finish()
                 }
+                // Also consume stale callbacks: they must not send an unqualified HOME elsewhere.
+                return true
             }
 
             override fun onVideoFrameRendered(session: AirPlaySession) {
@@ -6174,25 +6182,33 @@ class CarPlayHostActivity : ComponentActivity() {
         val mask = mazdaTransitionMask?.takeIf { it.view.parent === parent } ?: run {
             mazdaTransitionMask?.dispose()
             MzdTransitionMask(parent, output, mainHandler, capture = { copied ->
-                val width = MzdTransitionMask.SNAPSHOT_WIDTH
-                val height = (width * output.height / output.width.coerceAtLeast(1)).coerceAtLeast(1)
+                val display = sessionDisplay
+                val area = display?.viewAreas?.let { it.layoutArea(it.current) }
+                val width = minOf(display?.width ?: output.width, MzdTransitionPicture.CAPTURE_WIDTH).coerceAtLeast(1)
+                val height = (width * (display?.height ?: output.height) /
+                    (display?.width ?: output.width).coerceAtLeast(1)).coerceAtLeast(1)
+                fun deliver(stream: Bitmap?) {
+                    copied(stream?.takeUnless { it.isRecycled }?.let {
+                        if (display != null && area != null) {
+                            MzdTransitionPicture.crop(it, display.width, display.height, area)
+                        } else it
+                    })
+                }
                 val texture = output as? TextureView
                 val surface = fallbackVideoView
                 when {
-                    texture?.isAvailable == true -> copied(runCatching { texture.getBitmap(width, height) }.getOrNull())
+                    texture?.isAvailable == true -> deliver(runCatching { texture.getBitmap(width, height) }.getOrNull())
                     surface?.holder?.surface?.isValid == true -> {
                         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
                         // Copy asynchronously; the opaque fallback is visible immediately, even
                         // when the compositor cannot supply a snapshot before the first resize.
                         if (runCatching {
                             PixelCopy.request(surface, bitmap, { result ->
-                                copied(if (result == PixelCopy.SUCCESS) bitmap else null)
+                                deliver(if (result == PixelCopy.SUCCESS) bitmap else null)
                             }, mainHandler)
                         }.isFailure) copied(null)
                     }
-                    else -> copied(lastPicture?.takeUnless { it.isRecycled }?.let {
-                        Bitmap.createScaledBitmap(it, width, height, true)
-                    })
+                    else -> deliver(lastPicture)
                 }
             }, requestPicture = { sink?.refreshPicture(SCREEN_TYPE_MAIN) },
                 renderedFrames = { sink?.liveVideoCounters()?.rendered ?: -1L },

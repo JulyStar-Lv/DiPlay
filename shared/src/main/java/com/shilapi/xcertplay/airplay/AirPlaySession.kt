@@ -31,7 +31,8 @@ interface AirPlaySessionListener {
     fun onVideoFrameRendered(session: AirPlaySession) {}
     fun onTransportError(message: String) {}
     fun onDeviceInfo(session: AirPlaySession, info: AirPlayDeviceInfo) {}
-    fun onHostUiRequested(session: AirPlaySession) {}
+    /** Return true when the UI handles returning to the car itself; false uses the default HOME. */
+    fun onHostUiRequested(session: AirPlaySession): Boolean = false
     fun onCommand(session: AirPlaySession, type: String, params: Map<String, Any?>) {}
     /** Video in car: a playback message on a remote control session (X-Apple-StreamID). */
     fun onRemoteControlMessage(session: AirPlaySession, streamId: Long, message: Map<String, Any?>) {}

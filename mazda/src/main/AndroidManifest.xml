@@ -38,6 +38,14 @@
             android:value="true" />
 
         <receiver
+            android:name="com.shilapi.xcertplay.mazda.MzdPackageReplacedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
             android:name="com.shilapi.xcertplay.BootReceiver"
             android:enabled="true"
             tools:replace="android:enabled" />

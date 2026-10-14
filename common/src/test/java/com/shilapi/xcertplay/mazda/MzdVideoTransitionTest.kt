@@ -3,6 +3,10 @@ package com.shilapi.xcertplay.mazda
 import android.os.Handler
 import android.os.Looper
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.SurfaceTexture
 import android.view.MotionEvent
 import android.view.TextureView
@@ -28,6 +32,7 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 import org.robolectric.annotation.LooperMode
 import org.robolectric.util.ReflectionHelpers
 
@@ -132,6 +137,8 @@ class MzdVideoTransitionTest {
                     assertTrue(areaLeft <= 0.001f)
                     assertTrue(areaTop <= 0.001f)
                     assertTrue("No unused stream pixels may enter on the right", areaLeft + area.width * sx >= width - .001f)
+                    assertTrue("Keep the last active column and its filter neighbour out of the viewport",
+                        areaLeft + (area.width - MzdVideoLayout.RIGHT_EDGE_GUARD) * sx >= width - .001f)
                     assertTrue("No top/bottom letterbox", areaTop + area.height * sy >= 1080 - .001f)
                     assertTrue(content.contains(0f, 0f))
                     assertTrue(content.contains(width.toFloat(), 1080f))
@@ -190,6 +197,36 @@ class MzdVideoTransitionTest {
         assertEquals(CarPlayVideoLayout.fit(2496, 1080, 1728, 1080), content(1728, 1080))
         MzdOemReturnTest.MazdaResources.enabled = true
         assertEquals(CarPlayVideoLayout.fit(2496, 1080, 700, 990), content(700, 990))
+    }
+
+    @Test @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun hostCapturesTheOldNarrowActiveAreaBeforeExpandingInsteadOfTheWholeBlackPaddedCanvas() {
+        ReflectionHelpers.setField(host, "sink", mock(AndroidMediaSink::class.java))
+        val areas = MzdViewAreas.build(2496, 1080, CarPlayDock.AUTOMATIC, narrow = true)
+        install(2496, 1080, areas)
+        val output = object : TextureView(host) {
+            override fun isAvailable() = true
+            override fun getBitmap(width: Int, height: Int): Bitmap {
+                assertEquals(1248, width)
+                assertEquals(540, height)
+                return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
+                    it.eraseColor(Color.BLACK)
+                    Canvas(it).drawRect(0f, 0f, 863f, height.toFloat(), Paint().apply { color = Color.CYAN })
+                }
+            }
+        }
+        val root = FrameLayout(host).apply { addView(output, FrameLayout.LayoutParams(-1, -1)) }
+        host.setContentView(root)
+        root.measure(View.MeasureSpec.makeMeasureSpec(1728, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY))
+        root.layout(0, 0, 1728, 1080)
+        ReflectionHelpers.setField(host, "videoView", output)
+        host.beginMazdaPanelTransition(2496)
+        val mask = ReflectionHelpers.getField<MzdTransitionMask>(host, "mazdaTransitionMask")
+        val picture = (mask.picture.drawable as BitmapDrawable).bitmap
+        assertEquals(Color.CYAN, picture.getPixel(picture.width - 1, picture.height / 2))
+        assertTrue(mask.isShowing)
+        mask.dispose()
     }
 
     private fun install(width: Int, height: Int, areas: CarPlayViewAreas) {

@@ -73,6 +73,7 @@ internal class MzdCarAppLayout(context: Context) : FrameLayout(context) {
             // The OEM can keep both transparent tasks visible after moveTaskToBack(). Close their
             // windows instead, like the CarPlay car button; the background session outlives the UI.
             Log.i("DiPlayUi", "$area navigation requested; closing cockpit windows, retaining session")
+            MzdIntegration.refreshOtherLauncherArea(activity)
             MzdIntegration.closeWindows()
         }
     }

@@ -15,6 +15,39 @@ import java.util.concurrent.TimeUnit
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], manifest = Config.NONE)
 class AirPlayTcpAcceptTest {
+    @Test fun oemCommandThroughAcceptedSocketReachesTheAttachedListener() {
+        val service = Robolectric.buildService(CarPlayVpnService::class.java).create().get()
+        val requests = LinkedBlockingQueue<AirPlaySession>()
+        val address = InetAddress.getByName("127.0.0.1")
+        val config = AirPlayConfig("test", "test", "", "1", AirPlayDisplayConfig(800, 480), port = 0)
+        try {
+            assertEquals(CarPlayVpnService.AttachResult.Started, service.attachWireless(address, config,
+                AirPlayIdentity(ByteArray(32), ByteArray(32), "test"), PairingStore(), null,
+                object : AirPlaySessionListener {
+                    override fun onHostUiRequested(session: AirPlaySession): Boolean {
+                        requests.add(session)
+                        return true
+                    }
+                }, object : AirPlayMediaHandler {}, listenerIdentity = AirPlayListenerIdentity(1)))
+            Socket(address, service.boundPort()!!).use { socket ->
+                socket.soTimeout = 2_000
+                val body = BplistCodec.encode(mapOf("type" to "requestUI",
+                    "params" to emptyMap<String, Any?>()))
+                val header = "POST /command RTSP/1.0\r\nCSeq: 1\r\nContent-Length: ${body.size}\r\n\r\n"
+                socket.getOutputStream().apply {
+                    write(header.toByteArray(Charsets.US_ASCII))
+                    write(body)
+                    flush()
+                }
+                val response = socket.getInputStream().bufferedReader().readLine()
+                assertEquals("RTSP/1.0 200 OK", response)
+                assertNotNull("The transport wrapper must forward OEM return, not inherit the no-op default",
+                    requests.poll(2, TimeUnit.SECONDS))
+                assertNull("One command must trigger one return", requests.poll())
+            }
+        } finally { service.detach() }
+    }
+
     @Test fun bothAddressFamiliesReportOwnerAndOldCleanupPreservesNewListener() {
         val service = Robolectric.buildService(CarPlayVpnService::class.java).create().get()
         val received = LinkedBlockingQueue<AirPlayTcpAccepted>()

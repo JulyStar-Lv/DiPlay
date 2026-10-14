@@ -1,11 +1,13 @@
 package com.shilapi.xcertplay.mazda
 
 import android.content.ComponentName
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import com.shilapi.xcertplay.CarPlayHostActivity
 import com.shilapi.xcertplay.DiPlayActivity
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -15,6 +17,17 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class MzdWindowThemeTest {
+    @Test fun apkUpdateCanRefreshLauncherBeforeTheFirstAppListLaunch() {
+        val context = RuntimeEnvironment.getApplication()
+        val matches = context.packageManager.queryBroadcastReceivers(
+            Intent(Intent.ACTION_MY_PACKAGE_REPLACED).setPackage(context.packageName), 0)
+        val info = matches.single {
+            it.activityInfo.name == MzdPackageReplacedReceiver::class.java.name
+        }.activityInfo
+        assertTrue(info.enabled)
+        assertFalse("Only the system/package owner should invoke recovery", info.exported)
+    }
+
     @Test fun projectionStaysInTheLaunchersTaskOnEitherCockpitHalf() {
         val context = RuntimeEnvironment.getApplication()
         val home = context.packageManager.getActivityInfo(ComponentName(context, DiPlayActivity::class.java), 0)

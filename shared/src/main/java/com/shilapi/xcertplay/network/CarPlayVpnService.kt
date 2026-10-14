@@ -302,6 +302,12 @@ class CarPlayVpnService : VpnService() {
                                 current.listener.onVideoPlaybackUiRequested(session)
                             }
 
+                            // Keep OEM navigation explicit at the transport boundary, alongside
+                            // video UI requests. In particular this must use the Boolean callback
+                            // rather than retain a generated delegate for the former Unit signature.
+                            override fun onHostUiRequested(session: AirPlaySession): Boolean =
+                                current.listener.onHostUiRequested(session)
+
                             override fun onSessionEnded(session: AirPlaySession) {
                                 removeSession(session)
                                 if (current.listenerIdentity == null || !internalPeer) current.listener.onSessionEnded(session)

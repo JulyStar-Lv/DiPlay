@@ -37,6 +37,7 @@ class MzdDefaultsTest {
         assertEquals(60, AirPlayPersistence.loadFps(context))
         assertEquals(2, AirPlayPersistence.loadSettingsGestureFingers(context))
         assertEquals(AppAppearance.AUTO, AirPlayPersistence.loadAppAppearance(context))
+        assertTrue(AirPlayPersistence.loadMtkDecoderTuning(context))
         assertEquals(AirPlayPersistence.DEFAULT_OEM_LABEL, AirPlayPersistence.loadOemLabel(context))
         assertTrue(SetupGuide.seen(context))
         assertFalse(SetupGuide.shouldOpenOnLaunch(SetupGuide.seen(context), phoneChosen = false))
@@ -50,6 +51,7 @@ class MzdDefaultsTest {
         assertEquals(AppAppearance.DARK, AirPlayPersistence.loadAppAppearance(context))
         assertEquals(AirPlayPersistence.DEFAULT_OEM_LABEL, AirPlayPersistence.loadOemLabel(context))
         assertTrue(SetupGuide.shouldOpenOnLaunch(SetupGuide.seen(context), phoneChosen = false))
+        assertFalse(AirPlayPersistence.loadMtkDecoderTuning(context))
 
         MzdDefaults.initialize(context)
 
@@ -85,6 +87,7 @@ class MzdDefaultsTest {
         AirPlayPersistence.saveSettingsGestureFingers(context, 4)
         AirPlayPersistence.saveAppAppearance(context, AppAppearance.DARK)
         AirPlayPersistence.saveOemLabel(context, "BYD")
+        AirPlayPersistence.saveMtkDecoderTuning(context, false)
 
         MzdDefaults.initialize(context)
 
@@ -94,6 +97,7 @@ class MzdDefaultsTest {
         assertEquals(4, AirPlayPersistence.loadSettingsGestureFingers(context))
         assertEquals(AppAppearance.DARK, AirPlayPersistence.loadAppAppearance(context))
         assertEquals("BYD", AirPlayPersistence.loadOemLabel(context))
+        assertFalse(AirPlayPersistence.loadMtkDecoderTuning(context))
 
         clearPreferences()
         MzdDefaults.initialize(context)
@@ -131,6 +135,17 @@ class MzdDefaultsTest {
             assertEquals(label?.takeIf { it.isNotBlank() } ?: "Mazda", AirPlayPersistence.loadOemLabel(mazdaContext))
         }
     }
+
+    @Test fun previouslyInitializedMazdaGetsMissingMtkDefaultAndKeepsExplicitChoices() {
+        for (saved in listOf(null, false, true)) {
+            clearPreferences()
+            context.getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE).edit()
+                .putBoolean("mazda_defaults_initialized", true).commit()
+            if (saved != null) AirPlayPersistence.saveMtkDecoderTuning(context, saved)
+            MzdDefaults.initialize(context)
+            assertEquals(saved ?: true, AirPlayPersistence.loadMtkDecoderTuning(context))
+        }
+    }
 }
 
 @RunWith(RobolectricTestRunner::class)
@@ -145,6 +160,7 @@ class MzdApplicationTest {
         assertEquals(AirPlayPersistence.DEFAULT_OEM_LABEL, AirPlayPersistence.loadOemLabel(application))
         assertFalse(AirPlayPersistence.loadHideTopBar(application))
         assertFalse(AirPlayPersistence.loadHideBottomBar(application))
+        assertTrue(AirPlayPersistence.loadMtkDecoderTuning(application))
         assertTrue(SetupGuide.seen(application))
     }
 }
