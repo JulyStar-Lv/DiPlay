@@ -7,6 +7,8 @@ internal class MzdConnectionView(
     context: Context, night: Boolean, close: () -> Unit, settings: () -> Unit,
     back: () -> Unit, wireless: Boolean,
 ) : MzdPageView(context, night, close, settings) {
+    fun showHotspotFailure() = showToast(context.getString(R.string.hotspot_control_failed))
+
     init {
         stage.text = context.getString(R.string.getting_carplay_ready)
         instructions.text = context.getString(if (wireless)

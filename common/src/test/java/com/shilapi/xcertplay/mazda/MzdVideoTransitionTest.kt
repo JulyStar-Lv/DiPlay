@@ -221,9 +221,10 @@ class MzdVideoTransitionTest {
             View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY))
         root.layout(0, 0, 1728, 1080)
         ReflectionHelpers.setField(host, "videoView", output)
-        host.beginMazdaPanelTransition(2496)
+        val backdrop = host.beginMazdaPanelTransition(2496)
         val mask = ReflectionHelpers.getField<MzdTransitionMask>(host, "mazdaTransitionMask")
         val picture = (mask.picture.drawable as BitmapDrawable).bitmap
+        assertSame("The shell must reuse the cropped active picture, not software-capture the TextureView", picture, backdrop)
         assertEquals(Color.CYAN, picture.getPixel(picture.width - 1, picture.height / 2))
         assertTrue(mask.isShowing)
         mask.dispose()

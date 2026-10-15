@@ -99,10 +99,25 @@ its sidebar (1728×1080). These physical OEM coordinates do not scale with Andro
 Other window sizes use their available bounds. Observers and the navigation broadcast receiver
 are removed when the container detaches. The recognized OEM car-home broadcast closes both
 transparent Activity windows while retaining the shared CarPlay session.
-Visible sidebar changes animate only the panel's left edge using the OEM file manager's
-400 ms accelerate/decelerate transition. Top, bottom and right edges stay fixed, so the
-underlying AppList is not uncovered immediately before the sidebar arrives. Opening directly
+Visible sidebar changes animate only the panel's left edge using the OEM Launcher AppList's
+400 ms accelerate/decelerate transition. Like its MotionLayout, the panel advances a persistent
+linear 0..1 progress and applies easing to that progress before positioning the edge. Reversing
+mid-transition retraces the same curve for the remaining progress; it does not start a new
+easing curve timed from an already-eased pixel distance. Top, bottom and right edges stay fixed.
+Equal timing alone cannot synchronize separate foreground, AppList and sidebar windows.
+During visible motion an opaque, blurred backdrop retains full application-panel coverage;
+it is removed one animation-scaled transition interval after the foreground settles. This
+prevents the moving edge from exposing a lagging AppList. The backdrop stays inside the
+application bounds and below the OEM sidebar window; hiding/detaching or switching task area
+clears it. It reuses the active CarPlay mask picture instead of software-capturing TextureView.
+Opening directly
 in either shape places the panel immediately; reversing a transition starts at its current edge.
+The reference is Launcher AppList's `applist_bg_scene.xml` (full_screen/half_left),
+whose unspecified timing uses its bundled MotionScene defaults: 400 ms and interpolator 0
+(accelerate/decelerate). `BaseAppListActivity` confirms visible changes use
+`transitionToState`; first entry and background changes use `jumpToState` instead.
+Hidden DiPlay windows cancel pending motion and restore the current endpoint without replay.
+The AppList's separate 500 ms entry fade and 800 ms grid delay do not control panel resizing.
 During that transition the current CarPlay view area uniformly covers the panel, clipping
 overflow rather than shrinking the old wide frame into top/bottom black bars. Video and touch
 use the same transform. At either exact OEM endpoint, the host requests the matching view
@@ -121,10 +136,9 @@ A two-stream-pixel right-edge sampling guard keeps a black encoder boundary out 
 picture and snapshot. Live video retains uniform scale and the same touch transform; only the
 temporary masked picture stretches. Missing snapshots use an opaque colour gradient.
 The pixel regression fixture puts a narrow picture and a black right strip in one encoded
-canvas, then renders every animated width. Large-font fixture screenshots show the
-[compact mask](screenshots/mazda-transition-compact-large-font.png) and
-[full mask](screenshots/mazda-transition-full-large-font.png); these are synthetic renderer
-checks, not screenshots from an attached iPhone.
+canvas, then renders every animated width. Large-font compact/full mask fixtures are generated
+under `common/build/reports/mazda-ui/`; these are synthetic renderer checks, not screenshots
+from an attached iPhone. Generated screenshots are no longer stored in the source tree.
 The existing CarPlay resize debounce waits for the final dimensions before changing view area.
 The CarPlay OEM icon and both page close buttons use the same `exitApp` window-closing path.
 Their `requestUI`/close action reveals the previous head-unit page, including an open AppList,
@@ -171,6 +185,11 @@ the original configuration fields in memory, then the unchanged controller start
 manual-hotspot connection flow. `CarPlayRuntimeConfig` and `CarPlayController` have no Mazda
 parameter or branches. Duplicate preparation requests are ignored; cancellation releases the
 temporary observers, and a preparation failure keeps the existing manual retry button available.
+Hotspot preparation and hotspot-specific controller failures also show a localized,
+Launcher-style foreground toast in the current panel. It replaces duplicate hints,
+expires automatically and is removed when the page detaches. Phone connection timeouts
+do not produce a hotspot warning. `MzdToastTest` covers compact/full large-font and Arabic
+RTL rendering, replacement, expiry and detach cleanup.
 
 ## Verification
 
@@ -329,6 +348,51 @@ Mazda release build, and the Mazda tests in `:common` / `:shared`. Native widget
 write home/waiting screenshots for 1728 and 2496 pixel widths, light/dark appearance, large
 fonts and Arabic RTL to `common/build/reports/mazda-ui/`. Emulator screenshots and UI dumps
 are under `mazda/build/reports/emulator/` when captured locally.
+
+On 2026-10-15, FileManager animation alignment passed 20 focused cockpit/video/mask tests
+and the complete Android workflow including Mazda: 2829 tests with zero failures/errors/skips,
+plus Debug lint and assembly. Fresh narrow/full home renders at font scale 1.5 were inspected.
+Mazda Release lint/assembly and APK v2 signature verification passed. Actual APK DEX inspection
+confirms float progress, linear progress timing and accelerate/decelerate edge interpolation.
+The 0.2.19 (38) `com.thunder.carplay` release built at 08:52:26 (Asia/Shanghai) has SHA-256
+`37D1CDBB416AFA8015A5893BB2070329294AE981763C5A4FE1B296AA57AA65DD`.
+Comparison of the complete transition against FileManager on the vehicle remains required.
+
+The subsequent Launcher AppList alignment verifies its bundled MotionScene defaults,
+matches both nonzero sidebar signals, and jumps hidden windows to their current state.
+Hotspot-specific failures now show the localized Launcher-style foreground hint.
+Windows verification passed the complete Android workflow including Mazda: 2834 unit tests
+with zero failures/errors/skips, plus every Debug lint and assembly task. The combined
+focused suites passed 20 tests; four toast tests also passed after aligning the native-render
+fixture's RTL support with the Mazda manifest. Compact/full large-font and Arabic RTL toast
+renders were inspected. Native renders and the retained full CI report are under
+`common/build/reports/mazda-ui/` and `common/build/reports/tests/launcher-applist-toast-full-ci/`.
+Actual AppList/DiPlay frame synchronization and vehicle hotspot failure behavior still
+require verification on the EZ60.
+Mazda Release lint/assembly and APK v2 signature verification passed. The combined
+`com.thunder.carplay` 0.2.19 (38) APK written at 13:08:28 (Asia/Shanghai) on 2026-10-15
+has SHA-256 `B51B97C954679D3F3259647FEB90F48AC4E7A1C564C33403853D4B637D503BA0`.
+
+The afternoon vehicle recording `record_20261015_140112.mp4` still shows AppList
+through the moving left edge. Equal motion parameters do not synchronize the
+independent windows. The shell now retains an opaque blurred backdrop across
+the swept application region and a bounded, animation-scaled settling interval.
+SurfaceView-style clear pixels are flattened after capture. A native composite
+test deliberately leaves the background window at its old bounds and checks
+coverage, OEM margins, reversal, slow animation and lifecycle cleanup.
+The complete Android workflow including Mazda passed again: 2837 tests with
+zero failures/errors/skips, all Debug lint and assembly tasks. A final cleanup
+for reversal before the first progress tick was then verified by 14 focused
+cockpit/video/coverage tests. Release lint and assembly passed on that final source.
+The full report is retained at `common/build/reports/tests/panel-coverage-full-ci/`;
+its build log is `common/build/reports/mazda-ui/panel-coverage-full-ci.log`.
+Compact/full large-font renders were inspected and match the final CI renders.
+The new 0.2.19 (38) `com.thunder.carplay` APK was written at 14:49:21
+(Asia/Shanghai) on 2026-10-15, with SHA-256
+`EF9B8F1D4A26F8805883A121C36EF2FB5A8D6CE9AAEBEAC795F32001162552E6`.
+APK v2 verification passed and its signing certificate matches the earlier package.
+Actual OEM window compositing must still be checked on the EZ60, including
+continuous switching and reversal during entry/exit; no vehicle was connected locally.
 
 Real EZ60 validation must cover firmware permission grants, AP startup/readback, iPhone pairing,
 CarPlay video/touch, sidebar changes in both directions, and returning to the car UI with the

@@ -5155,6 +5155,10 @@ class CarPlayHostActivity : ComponentActivity() {
                 if (status.startupFailure != null) {
                     if (startupFailureGeneration == controllerGeneration) return@report
                     startupFailureGeneration = controllerGeneration
+                    if (status.startupFailure == WirelessStartupFailure.HOTSPOT_NOT_READY ||
+                        status.startupFailure == WirelessStartupFailure.HOTSPOT_CONFIGURATION) {
+                        (connectionPanel as? MzdConnectionView)?.showHotspotFailure()
+                    }
                 }
                 reconnectAfterLoss(description, status.startupFailure, englishDescription)
             }
@@ -5265,6 +5269,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     val message = error.message ?: getString(R.string.hotspot_control_failed)
                     appendLog("Mazda hotspot preparation failed: $message")
                     setConnectionStage(getString(R.string.status_failed, message))
+                    (connectionPanel as? MzdConnectionView)?.showHotspotFailure()
                 }
             })
             return
@@ -6171,11 +6176,11 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     /** Called on the first OEM sidebar signal, before its panel starts changing width. */
-    internal fun beginMazdaPanelTransition(targetWidth: Int) {
+    internal fun beginMazdaPanelTransition(targetWidth: Int): Bitmap? {
         if (!MzdIntegration.cockpit(this) || sessionDisplay == null || sink == null ||
-            shuttingDown.get() || isFinishing || connectionPanel?.visibility == View.VISIBLE) return
-        val output = videoView ?: return
-        val parent = output.parent as? FrameLayout ?: return
+            shuttingDown.get() || isFinishing || connectionPanel?.visibility == View.VISIBLE) return null
+        val output = videoView ?: return null
+        val parent = output.parent as? FrameLayout ?: return null
         // A reversal supersedes a queued endpoint from the previous animation.
         mainHandler.removeCallbacks(applyDisplaySize)
         pendingDisplaySize = null
@@ -6218,6 +6223,9 @@ class CarPlayHostActivity : ComponentActivity() {
         gestureTracking = false
         controller?.sendTouch(emptyList())
         mask.begin(targetWidth)
+        // The shell only downsamples this borrowed active-area picture. Drawing a TextureView
+        // into its software snapshot would otherwise leave a black strip behind the moving edge.
+        return (mask.picture.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
     }
 
     /** Keep one bounded, in-memory picture before the OEM closes this window's video surface. */

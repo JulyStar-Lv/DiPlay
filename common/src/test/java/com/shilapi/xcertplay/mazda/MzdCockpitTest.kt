@@ -23,6 +23,14 @@ import org.robolectric.util.ReflectionHelpers
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], manifest = Config.NONE)
 class MzdCockpitTest {
+    private fun windowVisibility(view: View, visibility: Int) {
+        // Robolectric leaves AttachInfo at GONE even after ActivityController.visible().
+        // Android updates it before dispatching this callback from ViewRootImpl.
+        val attachInfo = ReflectionHelpers.getField<Any>(view, "mAttachInfo")
+        ReflectionHelpers.setField(attachInfo, "mWindowVisibility", visibility)
+        view.dispatchWindowVisibilityChanged(visibility)
+    }
+
     @Config(qualifiers = "w5120dp-h1440dp-mdpi", shadows = [MzdOemReturnTest.MazdaResources::class])
     @Test fun passengerStartupAndSameSizeTaskMovesKeepContentInsideItsOwnArea() {
         MzdOemReturnTest.MazdaResources.enabled = true
@@ -100,8 +108,8 @@ class MzdCockpitTest {
 
     @Config(qualifiers = "w2560dp-h1440dp-mdpi")
     @LooperMode(LooperMode.Mode.PAUSED)
-    @Test fun sidebarResizeMovesContinuouslyWithoutExposingTheWholeUnderlyingAppListAtOnce() {
-        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+    @Test fun sidebarResizeFollowsAppListCurveInBothDirectionsAndReversesFromCurrentProgress() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
         val child = View(activity)
         val shell = MzdCarAppLayout(activity).apply { setPanelContent(child) }
         activity.setContentView(shell)
@@ -133,7 +141,11 @@ class MzdCockpitTest {
             // Deliver Settings notifications without Robolectric automatically finishing all frames.
             ShadowChoreographer.setPaused(true)
             layout()
+            windowVisibility(shell, View.VISIBLE)
             assertEquals(64, child.left)
+            assertTrue(shell.isLaidOut)
+            assertTrue(shell.isShown)
+            assertEquals(View.VISIBLE, shell.windowVisibility)
             signal("key_screen_show", 1)
             val shrinking = animator()
             shrinking.pause()
@@ -141,12 +153,14 @@ class MzdCockpitTest {
             shrinking.currentPlayTime = 0
             layout()
             assertEquals("Keep covering AppList while the OEM sidebar starts entering", 64, child.left)
-            shrinking.currentPlayTime = 100
-            layout()
-            assertTrue(child.left in 65..447)
-            shrinking.currentPlayTime = 200
-            layout()
-            assertEquals(448, child.left)
+            // Independent samples of the APK's 400 ms MotionScene interpolator 0 over 768 px.
+            // Check both directions, not just the midpoint (where several wrong curves agree).
+            val appListLeft = listOf(64, 93, 176, 301, 448, 595, 720, 803, 832)
+            appListLeft.forEachIndexed { frame, expected ->
+                shrinking.currentPlayTime = frame * 50L
+                layout()
+                assertEquals("Launcher AppList shrinking at ${frame * 50} ms", expected, child.left)
+            }
             // The two OEM signals share one transition; a second true signal must not restart it.
             signal("key_vpa_cui_show_left", 1)
             assertSame(shrinking, animator())
@@ -159,9 +173,14 @@ class MzdCockpitTest {
             val expanding = animator()
             assertNotSame(shrinking, expanding)
             expanding.pause()
-            expanding.currentPlayTime = 200
+            appListLeft.forEachIndexed { frame, expected ->
+                expanding.currentPlayTime = frame * 50L
+                layout()
+                assertEquals("Launcher AppList expanding at ${frame * 50} ms", 896 - expected, child.left)
+            }
+            expanding.currentPlayTime = 100
             layout()
-            assertEquals(448, child.left)
+            assertEquals(720, child.left)
             val reversalLeft = child.left
             // Reverse a live animation from its displayed edge, without snapping to either endpoint.
             signal("key_screen_show", 1)
@@ -171,7 +190,10 @@ class MzdCockpitTest {
             reversed.currentPlayTime = 0
             layout()
             assertEquals(reversalLeft, child.left)
-            assertEquals(400L * (832 - reversalLeft) / 768, reversed.duration)
+            assertEquals("Use remaining MotionLayout progress, not eased pixel distance", 100L, reversed.duration)
+            reversed.currentPlayTime = 50
+            layout()
+            assertEquals("Continue the end of the same eased curve on reversal", 803, child.left)
             reversed.currentPlayTime = reversed.duration
             layout()
             assertEquals(832, child.left)
@@ -181,6 +203,55 @@ class MzdCockpitTest {
             assertTrue(retiring.isRunning)
             activity.setContentView(View(activity))
             assertFalse(retiring.isRunning)
+            assertNull(ReflectionHelpers.getField<ValueAnimator?>(shell, "panelAnimator"))
+        } finally {
+            activity.finish()
+            Settings.Global.putInt(activity.contentResolver, "key_screen_show", 0)
+            Settings.Global.putInt(activity.contentResolver, "key_vpa_cui_show_left", 0)
+            ShadowChoreographer.setPaused(false)
+        }
+    }
+
+    @Config(qualifiers = "w2560dp-h1440dp-mdpi")
+    @LooperMode(LooperMode.Mode.PAUSED)
+    @Test fun hiddenWindowJumpsToSidebarStateWithoutReplayingAnAnimationOnReturn() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+        val child = View(activity)
+        val shell = MzdCarAppLayout(activity).apply { setPanelContent(child) }
+        activity.setContentView(shell)
+        fun layout() {
+            shell.measure(View.MeasureSpec.makeMeasureSpec(2560, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(1440, View.MeasureSpec.EXACTLY))
+            shell.layout(0, 0, 2560, 1440)
+        }
+        try {
+            ShadowChoreographer.setPaused(true)
+            layout()
+            windowVisibility(shell, View.VISIBLE)
+            assertTrue(shell.isLaidOut)
+            assertTrue(shell.isShown)
+            assertEquals(View.VISIBLE, shell.windowVisibility)
+            val viewRoot = ReflectionHelpers.callInstanceMethod<Any>(shell, "getViewRootImpl")
+            ReflectionHelpers.callInstanceMethod<Void>(viewRoot, "unscheduleTraversals")
+            Settings.Global.putInt(activity.contentResolver, "key_screen_show", 1)
+            activity.contentResolver.notifyChange(Settings.Global.getUriFor("key_screen_show"), null)
+            shadowOf(Looper.getMainLooper()).idle()
+            val running = requireNotNull(ReflectionHelpers.getField<ValueAnimator?>(shell, "panelAnimator"))
+            running.pause()
+            running.currentPlayTime = 100
+            layout()
+            assertEquals(176, child.left)
+
+            windowVisibility(shell, View.GONE)
+            assertFalse(running.isRunning)
+            assertNull(ReflectionHelpers.getField<ValueAnimator?>(shell, "panelAnimator"))
+            layout()
+            assertEquals("Finish the current state when the window disappears", 832, child.left)
+            Settings.Global.putInt(activity.contentResolver, "key_screen_show", 0)
+            // Returning re-reads the provider, including changes made while not drawing.
+            windowVisibility(shell, View.VISIBLE)
+            layout()
+            assertEquals(64, child.left)
             assertNull(ReflectionHelpers.getField<ValueAnimator?>(shell, "panelAnimator"))
         } finally {
             activity.finish()
@@ -208,6 +279,10 @@ class MzdCockpitTest {
         assertEquals(listOf(64, 192, 2560, 1272), bounds(0, 0))
         assertEquals(listOf(832, 192, 2560, 1272), bounds(1, 0))
         assertEquals(listOf(832, 192, 2560, 1272), bounds(0, 1))
+        // Launcher CommonUtil.getScreenStatus uses max(abs(cui), abs(screen)).
+        assertEquals(listOf(832, 192, 2560, 1272), bounds(0, -1))
+        assertEquals(listOf(832, 192, 2560, 1272), bounds(0, 2))
+        assertEquals(listOf(832, 192, 2560, 1272), bounds(-1, 0))
         assertEquals(listOf(0, 0, 1280, 720), bounds(1, 1, 1280, 720))
         Settings.Global.putInt(activity.contentResolver, "key_screen_show", 0)
         Settings.Global.putInt(activity.contentResolver, "key_vpa_cui_show_left", 0)

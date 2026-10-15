@@ -50,6 +50,9 @@ internal open class MzdPageView(
     private val actions = LinearLayout(context).apply { gravity = Gravity.CENTER }
     val hint = text("", 14f, true)
     private var night = night
+    private val toast by lazy { MzdToast(this) }
+
+    fun showToast(message: String) = toast.show(message, night)
 
     init {
         isClickable = true
