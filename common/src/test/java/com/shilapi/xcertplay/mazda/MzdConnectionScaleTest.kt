@@ -4,7 +4,9 @@ import android.content.res.Resources
 import android.content.pm.ApplicationInfo
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Rect
 import android.os.Handler
+import android.view.MotionEvent
 import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
@@ -100,7 +102,7 @@ class MzdConnectionScaleTest {
                 assertEquals(160, host.resources.configuration.densityDpi)
                 assertEquals(5120, host.resources.configuration.screenWidthDp)
                 val video = root.getChildAt(0) as TextureView
-                val touches = root.getChildAt(1)
+                val touches = ReflectionHelpers.getField<View>(host, "gestureOverlay")
                 for (layer in listOf(root, video, touches)) {
                     assertSame(host, layer.context)
                     assertEquals(2496, layer.width)
@@ -115,6 +117,40 @@ class MzdConnectionScaleTest {
                 assertEquals(home.connectButton.height, retry.height)
                 assertEquals(home.connectButton.paddingLeft, retry.paddingLeft)
             }
+        }
+    }
+
+    @Test fun connectionControlsReceiveTouchesAboveTheCarPlayGestureLayer() {
+        withPages { _, waiting, root, host ->
+            layout(root, 2496)
+            // A full-screen gesture consumer must not swallow the waiting page's close button.
+            val gestures = ReflectionHelpers.getField<View>(host, "gestureOverlay")
+            gestures.setOnTouchListener { _, _ -> true }
+            val close = descendants(waiting).filterIsInstance<android.widget.ImageButton>().single()
+            var receivedTaps = 0
+            // Observe dispatch itself: an unattached fixture defers Button's posted click callback.
+            close.setOnTouchListener { _, event ->
+                if (event.actionMasked == MotionEvent.ACTION_UP) receivedTaps++
+                true
+            }
+            val bounds = Rect()
+            close.getDrawingRect(bounds)
+            root.offsetDescendantRectToMyCoords(close, bounds)
+            fun tap() {
+                for (action in listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP)) {
+                    val event = MotionEvent.obtain(0, 0, action, bounds.exactCenterX(), bounds.exactCenterY(), 0)
+                    root.dispatchTouchEvent(event)
+                    event.recycle()
+                }
+            }
+            tap()
+            assertEquals("The connection page must stay above the video gesture layer", 1, receivedTaps)
+            // Negative control: putting the page below the consumer must reproduce the swallowed tap.
+            root.removeView(waiting)
+            root.addView(waiting, root.indexOfChild(gestures))
+            layout(root, 2496)
+            tap()
+            assertEquals("The test must detect the old fixed-index layering regression", 1, receivedTaps)
         }
     }
 
@@ -173,7 +209,7 @@ class MzdConnectionScaleTest {
             val home = MzdHomeView(homeActivity, false, {}, {}, {}, {}, {})
             ReflectionHelpers.setField(host, "wirelessEnabled", true)
             val root = ReflectionHelpers.callInstanceMethod<FrameLayout>(host, "buildContentView")
-            val waiting = root.getChildAt(2) as MzdConnectionView
+            val waiting = ReflectionHelpers.getField<MzdConnectionView>(host, "connectionPanel")
             check(home, waiting, root, host)
         } finally {
             homeActivity.finish()

@@ -394,6 +394,27 @@ APK v2 verification passed and its signing certificate matches the earlier packa
 Actual OEM window compositing must still be checked on the EZ60, including
 continuous switching and reversal during entry/exit; no vehicle was connected locally.
 
+The 2026-10-15 upstream integration advances from `c30d3f0d` to `1b1ac5f2`, retaining
+all 100 upstream commits (52 excluding merge commits) and the Mazda-specific history.
+The application version follows upstream 0.2.20 (39); the Mazda package ID, launcher icon,
+OEM/AppList exit behavior, task-area routing, MTK default and transition coverage remain intact.
+Lifecycle cleanup keeps both Mazda hotspot cancellation and upstream temporary-bar cleanup;
+waiting-page appearance refresh now applies to every build. The new black-corner overlay adds
+a layer below video gestures, so the Mazda waiting page replaces the original preparation
+page at its existing index rather than at a fixed child index. A touch-dispatch regression
+checks that its close button remains reachable above the gesture layer.
+Historical tracked screenshots were removed as requested. CI generates swipe-menu, corner,
+wheel-media and Mazda UI screenshots under build reports and uploads them with test reports.
+Native swipe-menu, corner-setting and Mazda waiting-page renders were inspected at font scale
+1.5 in compact/full windows, including Arabic RTL. The touch-dispatch regression also checks
+the incorrect layer order as a negative control, without relying on an unattached button's
+posted click callback.
+The final complete Android workflow on Windows, including Mazda, passed with 3082 tests
+(1528 shared, 1540 common, 6 Home and 8 Mazda), zero failures/errors/skips, and every Debug
+lint/assembly task successful. The focused touch-dispatch regression also passed separately.
+Public-tree and diff-format checks passed. Debug output metadata confirms version 0.2.20 (39)
+and `com.thunder.carplay.mazdatest`; release package identity remains `com.thunder.carplay`.
+
 Real EZ60 validation must cover firmware permission grants, AP startup/readback, iPhone pairing,
 CarPlay video/touch, sidebar changes in both directions, and returning to the car UI with the
 session retained. An ordinary Android emulator cannot establish these OEM-specific behaviors.
