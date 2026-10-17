@@ -132,9 +132,10 @@ instrument panel and bottom controls remain outside the mask. The snapshot crops
 stream area before downsampling, excluding the unused right strip of a narrow CarPlay frame.
 The complete picture stretches to each animated viewport size, with a tiny filtered blur image
 above it. Both layers fill the window without a RenderEffect layer retaining the old width.
-A two-stream-pixel right-edge sampling guard keeps a black encoder boundary out of the live
-picture and snapshot. Live video retains uniform scale and the same touch transform; only the
-temporary masked picture stretches. Missing snapshots use an opaque colour gradient.
+A two-stream-pixel guard remains for the full area. The narrow area excludes twelve source
+pixels at 1080-high resolution (six at 540), covering its measured coloured edge plus filtering
+margin in both live video and snapshots. Live video retains uniform scale and the same touch
+transform; only the temporary masked picture stretches. Missing snapshots use an opaque colour gradient.
 The pixel regression fixture puts a narrow picture and a black right strip in one encoded
 canvas, then renders every animated width. Large-font compact/full mask fixtures are generated
 under `common/build/reports/mazda-ui/`; these are synthetic renderer checks, not screenshots
@@ -466,6 +467,51 @@ scaling/compression cannot establish a one-physical-pixel border on the 5120×14
 The synthetic pixel checks cover a black last active column, unused canvas pixels, both stream
 sizes, all animated panel widths, and the host's capture before expanding a narrow view area.
 The new package still needs validation of the complete animation on the actual EZ60.
+
+The supplied `20261017T051839Z` capture rules out the proposed eight-pixel parent offset:
+geometry id 9 places both TextureView and its parent at (832,192)–(2560,1272), with identity
+view matrices, no padding/scroll, and a global translation of (832,192). Its content rectangle
+is (0,-0.6257324), 2498.892×1081.2515, and the TextureView matrix scales by
+(1.4461181,1.0011587). The transformed full canvas extends past the viewport; this is expected
+when selecting 1728 pixels from the 2496-wide canvas. In the screenshot, the straight picture
+edge changes near x=2553 while the blue/bright band continues through x=2559. With the
+source scale 1728/1726, that edge is near source x=1719, inside the advertised narrow area.
+The narrow sampling guard therefore increases from two to twelve source pixels and scales
+with stream height, while the physical panel bounds and full-area guard remain unchanged.
+Live video, touch inversion and transition captures use the same geometry policy. This is
+a targeted crop of the observed video-content edge, not evidence of a particular encoder or
+decoder defect: no raw decoded frame was included. The last geometry sample precedes the
+screenshot by about 43 seconds, so this capture establishes stable layout, not identical frames.
+Native renderer regression fixtures model a ten-source-pixel coloured band, both stream sizes,
+nonzero area origins and the animated widths; they are not real iPhone output.
+
+The old two-pixel policy failed the new native edge fixture at local x=1720. After the crop
+change, all 14 focused geometry/edge/transition tests passed. The complete Android workflow,
+including Mazda Debug and Release lint/assembly, then passed with 3149 tests and zero
+failures/errors/skips. Compact/full large-font native renders were inspected; APK v2 signing
+and the existing certificate were verified. The 0.2.20 (39) edge-fix APK has SHA-256
+`6D3532E5DCB00ADBE8171701D94FE399E0C9B747F5F5604212BB090FCE3C5C41`.
+
+Vehicle follow-up `20261017T054306Z` confirms the crop is active: all 14 geometry groups
+from the new process are complete; narrow samples consistently report (0,-3.776245),
+2513.4546×1087.5525, and a TextureView matrix of (1.4545455,1.006993) with translation
+(0,-3.776245). Narrow/full switches retain the fixed right edge at 2560; settled full samples
+retain the original geometry. The screenshot shows continuous picture colours at x=2553–2559
+and the visible right-side controls are intact. The last geometry group precedes the screenshot
+by about ten seconds, so it is a settled-layout check rather than a frame-atomic capture.
+Window and SurfaceFlinger dumps show the expected 2560×1440 surface, alpha 1, identity
+composition transform and no queued frames. UI gfxinfo reports 100/1591 janky frames (6.29%);
+this cumulative mixed-UI sample is not a controlled video frame-rate measurement. No new
+layout/composition problem is evident, and the user reports the seam is resolved visually.
+The temporary geometry listener, logger, logger-only tests and acquisition script are removed
+after this confirmation; the edge crop and native video/touch/transition regressions remain.
+The clean 0.2.20 (39) release retains package `com.thunder.carplay` and the existing signing
+certificate. APK v2 verification passes, and its DEX files retain the edge guard without the
+temporary diagnostic class or log markers. Its SHA-256 is
+`FF18339B4F73337DA7B6684161A35F80E23C28CE33BC78FFB0DD7565AC8F7604`.
+After cleanup, the complete Android workflow plus Mazda Release lint/assembly passed in
+12m 52s: 3147 tests (1554 shared, 1579 common, 6 Home, 8 Mazda), zero failures/errors/skips.
+Public-tree and diff-format checks passed.
 
 After merging upstream `main` at `24ae1fa5`, local verification on 2026-10-11 passed the full
 original CI command and the Mazda lint/debug tasks: 2535 tests, no failures, one skipped test.

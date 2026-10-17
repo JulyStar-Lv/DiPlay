@@ -18,7 +18,7 @@ internal object MzdTransitionPicture {
         // Crop before downsampling: shrinking the whole canvas first blends the unused black
         // strip into the final active columns. Freeze this area when capture starts, not on reply.
         val source = RectF(area.originX * sx, area.originY * sy,
-            (area.originX + (area.width - MzdVideoLayout.RIGHT_EDGE_GUARD).coerceAtLeast(1)) * sx,
+            (area.originX + (area.width - MzdVideoLayout.rightEdgeGuard(canvasWidth, area)).coerceAtLeast(1f)) * sx,
             (area.originY + area.height) * sy)
         val height = (PICTURE_WIDTH * area.height / area.width).coerceAtLeast(1)
         return Bitmap.createBitmap(PICTURE_WIDTH, height, Bitmap.Config.ARGB_8888).also {

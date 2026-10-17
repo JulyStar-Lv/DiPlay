@@ -136,8 +136,8 @@ class MzdVideoTransitionTest {
                     assertTrue(areaLeft <= 0.001f)
                     assertTrue(areaTop <= 0.001f)
                     assertTrue("No unused stream pixels may enter on the right", areaLeft + area.width * sx >= width - .001f)
-                    assertTrue("Keep the last active column and its filter neighbour out of the viewport",
-                        areaLeft + (area.width - MzdVideoLayout.RIGHT_EDGE_GUARD) * sx >= width - .001f)
+                    assertTrue("Keep the right-edge band and its filter neighbour out of the viewport",
+                        areaLeft + (area.width - MzdVideoLayout.rightEdgeGuard(canvasWidth, area)) * sx >= width - .001f)
                     assertTrue("No top/bottom letterbox", areaTop + area.height * sy >= 1080 - .001f)
                     assertTrue(content.contains(0f, 0f))
                     assertTrue(content.contains(width.toFloat(), 1080f))
