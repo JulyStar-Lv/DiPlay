@@ -16,6 +16,8 @@ import android.widget.Switch
 import android.widget.RadioButton
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.FrameLayout
+import com.shilapi.xcertplay.mazda.MzdTransitionMask
 import com.shilapi.xcertplay.airplay.*
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.orchestration.*
@@ -95,6 +97,29 @@ class CarPlayHostSettingsTest {
         assertEquals(2, field("gestureFingerCount"))
         invoke("cancelSettingsEdits")
         assertEquals(0, field("gestureFingerCount"))
+    }
+
+    @Test fun stalledTransitionBlocksCarPlayTapsButStillAllowsTheSettingsGesture() {
+        val controller = mock(CarPlayController::class.java)
+        setField("controller", controller)
+        setField("gestureFingerCount", 3)
+        val output = field("videoView") as View
+        val mask = MzdTransitionMask(output.parent as FrameLayout, output, field("mainHandler") as Handler,
+            capture = { it(null) }, requestPicture = {}, renderedFrames = { 0 }, textureOutput = true)
+        setField("mazdaTransitionMask", mask)
+        try {
+            mask.begin(2496)
+            touch(MotionEvent.ACTION_DOWN, 1, 100f)
+            touch(MotionEvent.ACTION_UP, 1, 100f)
+            org.mockito.Mockito.verifyNoInteractions(controller)
+            gesture(3)
+            assertTrue("The driver must be able to reach recovery controls while video is masked", field("menuOpen") as Boolean)
+            org.mockito.Mockito.verify(controller, org.mockito.Mockito.times(2)).sendTouch(emptyList())
+            assertTrue(mask.isShowing)
+        } finally {
+            mask.dispose()
+            setField("mazdaTransitionMask", null)
+        }
     }
 
     @Test fun menuStaysCenteredAndUsesAvailableWidthAcrossWindowSizes() {

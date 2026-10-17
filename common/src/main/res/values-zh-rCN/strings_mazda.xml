@@ -1,5 +1,5 @@
 <resources>
     <string name="mazda_usb_connection">USB连接</string>
     <string name="mazda_update_manual">EZ60 定制版通过手动安装更新，请使用相同签名的 Mazda 构建包。</string>
-    <string name="mazda_home_instructions">先在车机蓝牙设置中配对 iPhone，再连接。\n请保持蓝牙和 Wi-Fi 开启。</string>
+    <string name="mazda_home_instructions">车机热点模式：先开启热点，在「设置 → 连接」保存名称和密码。\n在车机蓝牙设置中配对 iPhone，再连接。\n保持 iPhone 蓝牙和 Wi-Fi 开启。</string>
 </resources>

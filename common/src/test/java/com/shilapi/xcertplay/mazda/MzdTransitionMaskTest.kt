@@ -32,6 +32,7 @@ class MzdTransitionMaskTest {
     private val callbacks = mutableListOf<(Bitmap?) -> Unit>()
     private var requests = 0
     private var rendered = 10L
+    private var layoutRetries = 0
 
     @Before fun setUp() {
         activity = Robolectric.buildActivity(Activity::class.java).setup().get()
@@ -55,9 +56,10 @@ class MzdTransitionMaskTest {
         assertTrue(mask.isShowing)
         assertEquals(1f, mask.view.alpha, 0f)
         assertNotNull(mask.view.background)
-        assertNull(mask.picture.drawable)
-        assertEquals(ImageView.ScaleType.FIT_XY, mask.picture.scaleType)
-        assertEquals(ImageView.ScaleType.FIT_XY, mask.blur.scaleType)
+        assertNull(mask.snapshot)
+        assertEquals(ImageView.ScaleType.CENTER_CROP, mask.blur.scaleType)
+        assertEquals(1f, mask.blur.alpha, 0f)
+        assertEquals("Only the blurred image is drawn", 1, mask.view.childCount)
         assertTrue(root.indexOfChild(output) < root.indexOfChild(mask.view))
         assertTrue(root.indexOfChild(mask.view) < root.indexOfChild(touches))
         for (width in listOf(2496, 2384, 2112, 1840, 1728, 2112, 2496)) {
@@ -71,7 +73,7 @@ class MzdTransitionMaskTest {
         }
         val picture = Bitmap.createBitmap(24, 15, Bitmap.Config.ARGB_8888)
         callbacks.single()(picture)
-        assertSame(picture, (mask.picture.drawable as BitmapDrawable).bitmap)
+        assertSame(picture, mask.snapshot)
         assertNotNull(mask.blur.drawable)
     }
 
@@ -104,12 +106,12 @@ class MzdTransitionMaskTest {
         assertTrue(mask.isShowing)
         assertEquals(1f, mask.view.alpha, 0f)
         oldCapture(Bitmap.createBitmap(24, 15, Bitmap.Config.ARGB_8888))
-        assertNull(mask.picture.drawable)
+        assertNull(mask.snapshot)
         val newCapture = callbacks.last()
         assertNotSame("A reversal must replace a snapshot that has not arrived", oldCapture, newCapture)
         val replacement = Bitmap.createBitmap(24, 15, Bitmap.Config.ARGB_8888)
         newCapture(replacement)
-        assertSame(replacement, (mask.picture.drawable as BitmapDrawable).bitmap)
+        assertSame(replacement, mask.snapshot)
         mask.settle()
         idle(450)
         mask.textureUpdated()
@@ -118,10 +120,10 @@ class MzdTransitionMaskTest {
         mask.dispose()
         oldCapture(Bitmap.createBitmap(24, 15, Bitmap.Config.ARGB_8888))
         assertNull(mask.view.parent)
-        assertNull(mask.picture.drawable)
+        assertNull(mask.snapshot)
     }
 
-    @Test fun surfaceFramesMustAdvanceAfterTheGuardAndBothMissingFramesAndMissingEndpointsTimeOut() {
+    @Test fun stalledVideoRetriesWhileCoveredAndOnlyPostGuardFramesCanReleaseTheMask() {
         mask.dispose()
         mask = create(texture = false)
         mask.begin()
@@ -136,10 +138,50 @@ class MzdTransitionMaskTest {
         mask.begin()
         mask.settle()
         idle(1800)
-        assertFalse("A stalled stream cannot keep the mask stuck", mask.isShowing)
-        mask.begin()
+        assertTrue("A timeout must not expose a stalled or black video surface", mask.isShowing)
+        assertEquals(1f, mask.view.alpha, 0f)
+        assertEquals(1, layoutRetries)
+        val afterRetry = requests
+        idle(1000)
+        assertEquals(afterRetry + 1, requests)
+        rendered++
+        idle(300)
+        assertFalse("A recovered stream must still complete the transition", mask.isShowing)
+        val completed = requests
+        idle(3000)
+        assertEquals("Recovery callbacks stop after the mask is gone", completed, requests)
+    }
+
+    @Test fun aMissingEndpointCannotBeReplacedByAnUnrelatedFrameOrATimer() {
+        mask.begin(2496)
         idle(2800)
-        assertFalse("Moving/detaching the task may cancel its endpoint notification", mask.isShowing)
+        assertTrue(mask.isShowing)
+        assertEquals(1, layoutRetries)
+        mask.textureUpdated()
+        idle(200)
+        assertEquals(1f, mask.view.alpha, 0f)
+        mask.settle(2496)
+        idle(450)
+        mask.textureUpdated()
+        idle(250)
+        assertFalse(mask.isShowing)
+    }
+
+    @Test fun failedCaptureRetriesWithoutLeavingTransparentPixelsAndDisposeStopsRecovery() {
+        mask.begin(2496)
+        callbacks.single()(null)
+        idle(2500)
+        assertEquals(2, callbacks.size)
+        val recovered = Bitmap.createBitmap(24, 15, Bitmap.Config.ARGB_8888)
+        callbacks.last()(recovered)
+        assertSame(recovered, mask.snapshot)
+        assertTrue((mask.blur.drawable as BitmapDrawable).isFilterBitmap)
+        val retries = requests
+        mask.dispose()
+        idle(5000)
+        assertEquals(retries, requests)
+        assertNull(mask.snapshot)
+        assertNull(mask.blur.drawable)
     }
 
     @Test fun anOldEndpointCannotArmTheMaskForANewDirection() {
@@ -162,7 +204,7 @@ class MzdTransitionMaskTest {
 
     private fun create(texture: Boolean) = MzdTransitionMask(root, output, Handler(Looper.getMainLooper()),
         capture = { callbacks += it }, requestPicture = { requests++ },
-        renderedFrames = { rendered }, textureOutput = texture)
+        renderedFrames = { rendered }, textureOutput = texture, retryLayout = { layoutRetries++ })
 
     private fun idle(millis: Long) = shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(millis))
 }

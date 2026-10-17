@@ -1,5 +1,5 @@
 <resources>
     <string name="mazda_usb_connection">USB連線</string>
     <string name="mazda_update_manual">EZ60 客製版透過手動安裝更新，請使用相同簽章的 Mazda 建置套件。</string>
-    <string name="mazda_home_instructions">先在車機藍牙設定中配對 iPhone，再連線。\n請保持藍牙和 Wi-Fi 開啟。</string>
+    <string name="mazda_home_instructions">車機熱點模式：先開啟熱點，在「設定 → 連線」儲存名稱和密碼。\n在車機藍牙設定中配對 iPhone，再連線。\n保持 iPhone 藍牙和 Wi-Fi 開啟。</string>
 </resources>

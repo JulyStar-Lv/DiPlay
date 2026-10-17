@@ -163,35 +163,70 @@ this fixed OEM panel; ordinary mobile builds retain the current rotation behavio
 
 ## System hotspot
 
-The Mazda application requests `NETWORK_SETTINGS` and `TETHER_PRIVILEGED`. Actual grants
-are checked at runtime; sharing a signing key alone does not establish permission availability
-on every firmware. Automatic system-hotspot handling is selected only when both permissions
-are granted and the saved connection mode is Car hotspot (`MANUAL`). USB, Wi-Fi Direct and
-existing Wi-Fi modes are preserved. Without these grants, the existing manual hotspot setup
-and reminders remain available.
+Mazda uses the upstream hotspot flow, aligned with upstream `main` at `1b1ac5f2`.
+There is no Mazda preparation worker, system-credential injection, forced 5 GHz configuration,
+SoftAP observer, or hotspot-specific foreground toast. The Mazda manifest no longer requests
+`NETWORK_SETTINGS` or `TETHER_PRIVILEGED`. Hotspot status, validation, failure guidance and
+manual retries use the upstream Activity/controller behavior inside the Mazda page shell.
 
-The bounded startup algorithm in `shared/.../network/mazda/` reads the complete system AP
-configuration, preserves SSID/password/security, requests 5 GHz, and verifies the running AP's
-reported frequency. It can restart an existing 2.4 GHz AP to apply that band, which briefly
-interrupts its clients. Cancellation or startup failure attempts to restore the original AP
-configuration without overwriting external changes. Closing a successful CarPlay session only
-releases observers; it leaves the car-owned hotspot running. Credentials are not logged.
+For Car hotspot (`MANUAL`):
 
-The Mazda manager reuses the unchanged `ManualHotspotManager` for interface attachment and
-the original frequency/channel inference. System AP callbacks still verify that the running
-hotspot is ready on 5 GHz. `MzdHotspotConnection` prepares the hotspot off the UI thread before
-creating the CarPlay runtime configuration. It supplies the current SSID/password/security to
-the original configuration fields in memory, then the unchanged controller starts its normal
-manual-hotspot connection flow. `CarPlayRuntimeConfig` and `CarPlayController` have no Mazda
-parameter or branches. Duplicate preparation requests are ignored; cancellation releases the
-temporary observers, and a preparation failure keeps the existing manual retry button available.
-Hotspot preparation and hotspot-specific controller failures also show a localized,
-Launcher-style foreground toast in the current panel. It replaces duplicate hints,
-expires automatically and is removed when the page detaches. Phone connection timeouts
-do not produce a hotspot warning. `MzdToastTest` covers compact/full large-font and Arabic
-RTL rendering, replacement, expiry and detach cleanup.
+1. Turn on the car's hotspot in its own settings. Choose 5 GHz there if available.
+2. In DiPlay, open **Settings → Connection**, select **Car hotspot**, and save the exact hotspot
+   name and password. Check the saved security/band choices against the car's settings.
+3. Pair the iPhone in the car's Bluetooth settings, select it in DiPlay and connect. Keep the
+   iPhone's Bluetooth and Wi-Fi on.
+
+The home instructions describe these steps in every supported language. Upgrades retain saved
+preferences, but earlier automatic preparation only supplied credentials in memory; an existing
+installation may still need its hotspot details saved before it can connect. No automatic
+credential migration is performed. If the car changes its hotspot name or password, update the
+saved details in DiPlay.
+
+`ManualHotspotManager` attaches to the already-running system-owned hotspot and uses the
+upstream interface/address, BSSID, security and channel discovery. Available system configuration
+is read for validation; it does not replace the saved name/password. If the firmware hides the
+channel, the upstream flow advertises channel 0 (auto). DiPlay does not change the system hotspot's
+band or stop it when the CarPlay session ends.
+
+Optional automatic startup follows the upstream opt-in `CarHotspotSettings` /
+`CarHotspotTethering` flow. For non-BYD units, its settings entry is offered only on Android 8–10
+and requires Modify system settings access. On Android 11+ non-BYD Mazda firmware, use the car's
+own hotspot controls; the removed privileged startup is not replaced by a Mazda-specific ADB path.
+USB, Wi-Fi Direct and existing Wi-Fi continue to use their shared connection managers.
 
 ## Verification
+
+### Upstream hotspot alignment (2026-10-16)
+
+`MzdHotspotFlowTest` checks that a Mazda head unit with both former platform hotspot grants
+still opens connection setup when saved credentials are missing, and shows the upstream hotspot-off
+dialog when a saved hotspot is off and automatic startup is disabled. The preparation and
+configuration-copy tests were removed along with their implementation. Hotspot failure no longer
+uses the Mazda foreground toast; the generic toast remains available for other page hints.
+
+The existing `MzdPageViewTest` generates the updated home instructions at compact/full panel
+widths (1728/2496), font scale 1.5, and Arabic RTL. Existing cockpit, OEM-return, task-routing,
+video-transition and panel-coverage suites continue to cover the retained Mazda presentation.
+
+The full Windows workflow attempt on 2026-10-17 did not pass: an asynchronous audio wait timed
+out, and common tests stopped at a test-class loading failure while other builds were using
+the same output tree. That attempt was stopped after exceeding the workflow's 30-minute limit
+during lint analysis. Follow-up hotspot/Mazda checks use separate build directories and a
+separate Gradle project cache; their scoped results must not be read as a full-workflow pass.
+
+The isolated unit-test selection passed 419 tests with zero failures/errors/skips: 172 shared
+hotspot/audio tests, 233 common hotspot/Mazda/host-settings tests, 6 Home tests and 8 Mazda tests.
+This includes both new hotspot-flow regressions and all 18 tests in the audio class that
+previously timed out.
+
+The isolated follow-up on 2026-10-17 passed Debug lint and assembly for Mobile, Home, Maphost
+and Mazda. All four lint reports contain zero errors/fatal issues. The merged Mazda manifest
+omits both former platform hotspot permissions, and the Debug APK's DEX files contain none
+of the removed Mazda hotspot preparation/manager classes.
+After the latest animation edits, a final run of `MzdHotspotFlowTest`,
+`MzdTransitionMaskTest` and `MzdVideoTransitionTest` passed all 22 tests with zero
+failures/errors/skips against the current sources.
 
 ### OEM return and reopening from AppList
 
@@ -360,7 +395,8 @@ Comparison of the complete transition against FileManager on the vehicle remains
 
 The subsequent Launcher AppList alignment verifies its bundled MotionScene defaults,
 matches both nonzero sidebar signals, and jumps hidden windows to their current state.
-Hotspot-specific failures now show the localized Launcher-style foreground hint.
+That build also added a localized Launcher-style hotspot failure hint, removed by the
+subsequent upstream hotspot alignment described above.
 Windows verification passed the complete Android workflow including Mazda: 2834 unit tests
 with zero failures/errors/skips, plus every Debug lint and assembly task. The combined
 focused suites passed 20 tests; four toast tests also passed after aligning the native-render
@@ -398,8 +434,9 @@ The 2026-10-15 upstream integration advances from `c30d3f0d` to `1b1ac5f2`, reta
 all 100 upstream commits (52 excluding merge commits) and the Mazda-specific history.
 The application version follows upstream 0.2.20 (39); the Mazda package ID, launcher icon,
 OEM/AppList exit behavior, task-area routing, MTK default and transition coverage remain intact.
-Lifecycle cleanup keeps both Mazda hotspot cancellation and upstream temporary-bar cleanup;
-waiting-page appearance refresh now applies to every build. The new black-corner overlay adds
+That merge retained Mazda hotspot cancellation (removed by the subsequent upstream hotspot
+alignment) and upstream temporary-bar cleanup; waiting-page appearance refresh now applies to
+every build. The new black-corner overlay adds
 a layer below video gestures, so the Mazda waiting page replaces the original preparation
 page at its existing index rather than at a fixed child index. A touch-dispatch regression
 checks that its close button remains reachable above the gesture layer.
@@ -415,9 +452,10 @@ lint/assembly task successful. The focused touch-dispatch regression also passed
 Public-tree and diff-format checks passed. Debug output metadata confirms version 0.2.20 (39)
 and `com.thunder.carplay.mazdatest`; release package identity remains `com.thunder.carplay`.
 
-Real EZ60 validation must cover firmware permission grants, AP startup/readback, iPhone pairing,
-CarPlay video/touch, sidebar changes in both directions, and returning to the car UI with the
-session retained. An ordinary Android emulator cannot establish these OEM-specific behaviors.
+Real EZ60 validation must cover manual hotspot setup, missing/stale saved credentials, hotspot
+off/on, iPhone pairing, CarPlay video/touch, sidebar changes in both directions, and returning
+to the car UI with the session retained. An ordinary Android emulator cannot establish these
+OEM-specific behaviors.
 
 On 2026-10-14, transition regression verification on Windows passed the complete Android
 workflow command including Mazda: 2807 tests with no failures or errors, Debug lint/builds,

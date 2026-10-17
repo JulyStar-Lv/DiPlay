@@ -1,5 +1,5 @@
 <resources>
     <string name="mazda_usb_connection">USB-підключення</string>
     <string name="mazda_update_manual">Ця версія EZ60 оновлюється вручну. Встановіть версію Mazda, підписану тим самим ключем.</string>
-    <string name="mazda_home_instructions">Створіть пару з iPhone у налаштуваннях Bluetooth автомобіля.\nЗалиште Bluetooth і Wi-Fi увімкненими.</string>
+    <string name="mazda_home_instructions">Точка доступу автомобіля: увімкніть її та збережіть назву й пароль у розділі «Налаштування → Підключення».\nСтворіть пару з iPhone у налаштуваннях Bluetooth автомобіля, потім підключіться.\nЗалиште Bluetooth і Wi-Fi на iPhone увімкненими.</string>
 </resources>

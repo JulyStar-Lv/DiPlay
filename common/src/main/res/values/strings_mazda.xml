@@ -1,5 +1,5 @@
 <resources>
     <string name="mazda_usb_connection">USB connection</string>
     <string name="mazda_update_manual">This EZ60 build is updated manually. Install a Mazda build signed with the same key.</string>
-    <string name="mazda_home_instructions">Pair your iPhone in the car Bluetooth settings, then connect.\nKeep Bluetooth and Wi-Fi on.</string>
+    <string name="mazda_home_instructions">Car hotspot: turn it on and save its name and password in Settings → Connection.\nPair your iPhone in the car Bluetooth settings, then connect.\nKeep iPhone Bluetooth and Wi-Fi on.</string>
 </resources>

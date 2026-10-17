@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Matrix
 import android.graphics.drawable.BitmapDrawable
 import android.os.Handler
 import android.os.Looper
@@ -17,6 +18,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import org.robolectric.annotation.LooperMode
@@ -44,8 +46,9 @@ class MzdTransitionPictureTest {
         }
     }
 
-    @Test fun narrowPictureStretchesAcrossEveryAnimatedWidthWithBlurAboveItAndNoBlackEdge() {
+    @Test fun narrowPictureCoversEveryAnimatedWidthWithUniformBlurAndNoBlackEdge() {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        RuntimeEnvironment.setFontScale(1.5f)
         // Match the reported failure: a narrow active picture in a full-width encoded canvas.
         val stream = Bitmap.createBitmap(1248, 540, Bitmap.Config.ARGB_8888)
         stream.eraseColor(Color.BLACK)
@@ -64,14 +67,17 @@ class MzdTransitionPictureTest {
             capture = { it(captured) }, requestPicture = {}, renderedFrames = { 0 }, textureOutput = true)
         try {
             mask.begin(2496)
-            assertTrue(mask.view.indexOfChild(mask.picture) < mask.view.indexOfChild(mask.blur))
+            assertEquals("A sharp underlay must not ghost through the blur", 1, mask.view.childCount)
             assertEquals(24, (mask.blur.drawable as BitmapDrawable).bitmap.width)
             for (width in listOf(1728, 1840, 2112, 2384, 2496, 2112, 1728)) {
                 root.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                     View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY))
                 root.layout(0, 0, width, 1080)
-                assertEquals(width, mask.picture.width)
                 assertEquals(width, mask.blur.width)
+                val transform = FloatArray(9)
+                mask.blur.imageMatrix.getValues(transform)
+                assertEquals("Blur shapes must not be stretched when the window widens",
+                    transform[Matrix.MSCALE_X], transform[Matrix.MSCALE_Y], .001f)
                 val rendered = Bitmap.createBitmap(width, 1080, Bitmap.Config.ARGB_8888)
                 root.draw(Canvas(rendered))
                 for (x in 0 until width) {
@@ -83,6 +89,59 @@ class MzdTransitionPictureTest {
                     val file = File("build/reports/mazda-ui/transition-${width}-large-font.png")
                     file.parentFile.mkdirs()
                     file.outputStream().use { rendered.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                }
+            }
+        } finally { mask.dispose(); activity.finish() }
+    }
+
+    @Test fun blurredPictureDoesNotLeakTheSharpControlsUnderIt() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val source = Bitmap.createBitmap(384, 240, Bitmap.Config.ARGB_8888)
+        source.eraseColor(Color.rgb(42, 153, 186))
+        val canvas = Canvas(source)
+        // Thin edges fall between thumbnail samples. A sharp underlay makes them reappear as
+        // bright stripes even at the old 8% opacity; the blurred-only image must stay smooth.
+        for (x in 6 until source.width step 16) {
+            canvas.drawRect(x.toFloat(), 0f, x + 1f, 240f, Paint().apply { color = Color.WHITE })
+        }
+        val output = View(activity)
+        val root = FrameLayout(activity).apply { addView(output, FrameLayout.LayoutParams(-1, -1)) }
+        activity.setContentView(root)
+        val mask = MzdTransitionMask(root, output, Handler(Looper.getMainLooper()),
+            capture = { it(source) }, requestPicture = {}, renderedFrames = { 0 }, textureOutput = true)
+        try {
+            mask.begin(2496)
+            for (width in listOf(1728, 2496)) {
+                root.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY))
+                root.layout(0, 0, width, 1080)
+                val rendered = Bitmap.createBitmap(width, 1080, Bitmap.Config.ARGB_8888)
+                root.draw(Canvas(rendered))
+                val reds = (16 until width - 16).map { Color.red(rendered.getPixel(it, 540)) }
+                assertTrue("Sharp edges must not survive as ghosts at width=$width", reds.max() - reds.min() <= 2)
+            }
+        } finally { mask.dispose(); activity.finish() }
+    }
+
+    @Test fun missingSnapshotStillCoversAnExpandingBlackOutput() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val output = View(activity).apply { setBackgroundColor(Color.BLACK) }
+        val root = FrameLayout(activity).apply { addView(output, FrameLayout.LayoutParams(-1, -1)) }
+        activity.setContentView(root)
+        val mask = MzdTransitionMask(root, output, Handler(Looper.getMainLooper()),
+            capture = { it(null) }, requestPicture = {}, renderedFrames = { 0 }, textureOutput = true)
+        try {
+            mask.begin(2496)
+            for (width in listOf(1728, 1840, 2112, 2384, 2496)) {
+                root.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY))
+                root.layout(0, 0, width, 1080)
+                val rendered = Bitmap.createBitmap(width, 1080, Bitmap.Config.ARGB_8888)
+                root.draw(Canvas(rendered))
+                for (x in 0 until width) {
+                    val pixel = rendered.getPixel(x, 540)
+                    assertEquals(255, Color.alpha(pixel))
+                    assertNotEquals("The black output must remain covered at width=$width x=$x", Color.BLACK, pixel)
                 }
             }
         } finally { mask.dispose(); activity.finish() }

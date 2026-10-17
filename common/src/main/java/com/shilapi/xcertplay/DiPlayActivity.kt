@@ -28,6 +28,7 @@ import android.media.AudioFormat
 import android.media.AudioTrack
 import android.media.MediaFormat
 import android.net.Uri
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -198,6 +199,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private var homeCardTitle: TextView? = null
     private var homeConnectionHint: TextView? = null
     private var connectButton: Button? = null
+    private var mazdaHomeView: MzdHomeView? = null
     private var phoneSessionButton: Button? = null
     private var lastRunning: Boolean? = null
     private var pendingWireless = false
@@ -684,6 +686,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         settingsSearchBox = null
         if (page != "settings") clearSettingsSearchState()
         status = null; connectButton = null; phoneSessionButton = null; lastRunning = null; carButtonCard = null
+        mazdaHomeView = null
         reconnectBar = null
         readinessCard = null
         exportButton = null
@@ -705,6 +708,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 connect = { if (CarPlayBackgroundSession.hasSession()) openProjection() else connect(true) },
                 phoneSessionAction = ::onHomePhoneSessionClick, usb = { connect(false) },
             ).apply {
+                mazdaHomeView = this
                 status = stage
                 this@DiPlayActivity.connectButton = connectButton
                 setupError?.let { instructions.text = it }
@@ -2804,7 +2808,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
 
     // An opted-in connection prepares the hotspot in the controller instead of stopping at this reminder.
     private fun carHotspotOff(): Boolean =
-        !MzdIntegration.automaticHotspot(this) &&
         AirPlayPersistence.loadWirelessHotspotMode(this) == WirelessHotspotMode.MANUAL &&
             CarHotspotSettings.reportedOff(this, com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(this)) &&
             !(CarHotspotSettings.enabled(this) && CarHotspotTethering.permitted(this))
@@ -2979,7 +2982,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         adbCheckInProgress || vehicleProbeAuthorizationInProgress || vehicleProbeInProgress
 
     private fun startCarHotspotOnLaunch() {
-        if (MzdIntegration.automaticHotspot(this) || !startupHotspotEligible()) return
+        if (!startupHotspotEligible()) return
         val app = applicationContext
         Thread({
             val result = CarHotspotTethering.enable(app,
@@ -5579,9 +5582,15 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
 
     private fun connect(wireless: Boolean) {
         startupHotspotCancelled = true
-        if (wireless && pendingCarHotspotSetup && !MzdIntegration.automaticHotspot(this)) { toast(getString(R.string.save_your_hotspot_details_in_connection_setup_first)); page = "connection"; render(); return }
+        if (wireless && pendingCarHotspotSetup) { toast(getString(R.string.save_your_hotspot_details_in_connection_setup_first)); page = "connection"; render(); return }
+        if (wireless && AirPlayPersistence.loadWirelessHotspotMode(this) == WirelessHotspotMode.WIFI_P2P &&
+            runCatching { applicationContext.getSystemService(WifiManager::class.java)?.isWifiEnabled }.getOrNull() == false) {
+            val message = getString(R.string.turn_on_wi_fi_in_the_head_unit_s_settings_to_connect)
+            mazdaHomeView?.showToast(message) ?: toast(message)
+            return
+        }
         if (setupError != null) { toast(setupError!!); return }
-        if (wireless && !MzdIntegration.automaticHotspot(this) && AirPlayPersistence.loadWirelessHotspotMode(this) == WirelessHotspotMode.MANUAL &&
+        if (wireless && AirPlayPersistence.loadWirelessHotspotMode(this) == WirelessHotspotMode.MANUAL &&
             hotspotError(storedSsid(), storedPassword()) != null) {
             pendingCarHotspotSetup = true
             page = "connection"

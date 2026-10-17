@@ -80,6 +80,7 @@ internal object CarPlayMediaKeys {
         appContext = context.applicationContext
         controller = next
         GeelyWheelKeys.start(context)
+        com.shilapi.xcertplay.mazda.MzdWheelKeys.start(context, next)
         com.shilapi.xcertplay.media.AmbientMusicController.claimPlaybackOwner(next)
         next.playbackListener = { playing ->
             com.shilapi.xcertplay.media.AmbientMusicController.phonePlaybackChanged(next, playing)
@@ -102,6 +103,7 @@ internal object CarPlayMediaKeys {
         expected.artworkListener = null
         controller = null
         GeelyWheelKeys.stop()
+        com.shilapi.xcertplay.mazda.MzdWheelKeys.stop()
         releaseLocked()
     }
 
@@ -424,9 +426,10 @@ internal object CarPlayMediaKeys {
     /** A steering-wheel media key captured outside the Android key stream (Geely/Lynk). */
     internal fun onExternalMediaKey(index: Int) = send(index, "geely-wheel")
 
-    /** The steering-wheel microphone key captured outside the Android key stream (Geely/Lynk). */
-    internal fun onExternalSiriKey(): Boolean {
+    /** The steering-wheel microphone key captured through a car's own input service. */
+    internal fun onExternalSiriKey(expected: Any? = null): Boolean {
         val active = synchronized(this) { controller } ?: return false
+        if (expected != null && active !== expected) return false
         return runCatching { active.requestSiri() }.getOrDefault(false)
     }
 

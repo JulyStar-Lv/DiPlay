@@ -7,9 +7,6 @@ import com.shilapi.xcertplay.mazda.MzdViewAreas
 import com.shilapi.xcertplay.mazda.MzdVideoLayout
 import com.shilapi.xcertplay.mazda.MzdTransitionPicture
 import com.shilapi.xcertplay.mazda.MzdTransitionMask
-import com.shilapi.xcertplay.mazda.MzdHotspotConnection
-import com.shilapi.xcertplay.network.WirelessHotspotInfo
-import com.shilapi.xcertplay.transport.Iap2WirelessSecurity
 import android.app.AlertDialog
 import android.Manifest
 import android.content.ActivityNotFoundException
@@ -597,7 +594,6 @@ class CarPlayHostActivity : ComponentActivity() {
     private var handshakeResetInProgress = false
     private var startAfterHandshakeReset = false
     private var restartGeneration = 0
-    private var mazdaHotspotPreparation: MzdHotspotConnection? = null
     private var reconnectScheduled = false
     private var requestedSmallWindowForStream: Boolean? = null
     @Volatile private var adbNaviMode: com.shilapi.xcertplay.hud.BydClusterNaviMode? = null
@@ -711,7 +707,7 @@ class CarPlayHostActivity : ComponentActivity() {
         val size = pendingDisplaySize ?: return@Runnable
         pendingDisplaySize = null
         applyDisplaySize(size)
-        if (MzdVideoLayout.isSettledPanel(size.width, size.height)) mazdaTransitionMask?.settle(size.width)
+        settleMazdaTransition(size)
     }
 
     private val textureListener = object : TextureView.SurfaceTextureListener {
@@ -1858,7 +1854,6 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        mazdaHotspotPreparation?.cancel()
         mainHandler.removeCallbacks(hideTemporarySystemBars)
         discardLastPicture()
         if (pictureCopyThreadStarted) pictureCopyThread.quitSafely()
@@ -1985,15 +1980,13 @@ class CarPlayHostActivity : ComponentActivity() {
             text = getString(R.string.retry_carplay_connection)
             visibility = View.GONE
             setOnClickListener {
-                if (shuttingDown.get() || menuOpen || handshakeResetInProgress) return@setOnClickListener
-                val owner = CarPlayBackgroundSession.isOwner(this@CarPlayHostActivity)
-                if (!owner && !(wirelessEnabled && MzdIntegration.automaticHotspot(this@CarPlayHostActivity) &&
-                    controller == null && !CarPlayBackgroundSession.hasSession())) return@setOnClickListener
+                if (!CarPlayBackgroundSession.isOwner(this@CarPlayHostActivity) ||
+                    shuttingDown.get() || menuOpen || handshakeResetInProgress) return@setOnClickListener
                 startupRetryBudget.manualRetry()
                 startupRetryStopped = false
                 reconnectAttempts = 0
                 visibility = View.GONE
-                if (owner) restartCarPlay(getString(R.string.connecting_to_your_iphone)) else maybeStartCarPlay()
+                restartCarPlay(getString(R.string.connecting_to_your_iphone))
             }
             startupRetryButton = this
         }
@@ -4599,7 +4592,7 @@ class CarPlayHostActivity : ComponentActivity() {
             existingWifiErrorView?.visibility = if (error == null) View.GONE else View.VISIBLE
             return error == null
         }
-        if (wirelessHotspotMode != WirelessHotspotMode.MANUAL || MzdIntegration.automaticHotspot(this)) return true
+        if (wirelessHotspotMode != WirelessHotspotMode.MANUAL) return true
         val error = when {
             manualHotspotSsid.isBlank() -> getString(R.string.hotspot_ssid_is_required)
             manualHotspotSsid.encodeToByteArray().size > 32 ->
@@ -5405,10 +5398,6 @@ class CarPlayHostActivity : ComponentActivity() {
                 if (status.startupFailure != null) {
                     if (startupFailureGeneration == controllerGeneration) return@report
                     startupFailureGeneration = controllerGeneration
-                    if (status.startupFailure == WirelessStartupFailure.HOTSPOT_NOT_READY ||
-                        status.startupFailure == WirelessStartupFailure.HOTSPOT_CONFIGURATION) {
-                        (connectionPanel as? MzdConnectionView)?.showHotspotFailure()
-                    }
                 }
                 reconnectAfterLoss(description, status.startupFailure, englishDescription)
             }
@@ -5506,50 +5495,9 @@ class CarPlayHostActivity : ComponentActivity() {
         return true
     }
 
-    private fun startCarPlay(size: DisplaySize, preparedHotspot: WirelessHotspotInfo? = null) {
+    private fun startCarPlay(size: DisplaySize) {
         if (CarPlayBackgroundSession.hasSession() && !CarPlayBackgroundSession.isOwner(this)) return
         if (shuttingDown.get() || menuOpen || handshakeResetInProgress || controller != null) return
-        val automaticHotspot = wirelessEnabled && MzdIntegration.automaticHotspot(this)
-        if (!automaticHotspot) mazdaHotspotPreparation?.cancel()
-        if (automaticHotspot && preparedHotspot == null) {
-            if (startupRetryStopped) return
-            val generation = restartGeneration
-            val preparation = mazdaHotspotPreparation ?: MzdHotspotConnection(this).also { mazdaHotspotPreparation = it }
-            setConnectionStage(getString(R.string.starting_wireless_hotspot))
-            preparation.start(::appendLog, onReady = { hotspot ->
-                if (generation == restartGeneration && !isDestroyed && wirelessEnabled && MzdIntegration.automaticHotspot(this)) {
-                    startCarPlay(activeDisplaySize ?: size, hotspot)
-                }
-            }, onFailure = { error ->
-                if (generation == restartGeneration && !isDestroyed && !shuttingDown.get()) {
-                    startupRetryStopped = true
-                    startupRetryButton?.visibility = View.VISIBLE
-                    val message = error.message ?: getString(R.string.hotspot_control_failed)
-                    appendLog("Mazda hotspot preparation failed: $message")
-                    setConnectionStage(getString(R.string.status_failed, message))
-                    (connectionPanel as? MzdConnectionView)?.showHotspotFailure()
-                }
-            })
-            return
-        }
-        if (preparedHotspot != null) {
-            manualHotspotSsid = preparedHotspot.ssid
-            manualHotspotPassphrase = preparedHotspot.passphrase
-            manualHotspotBand = ManualHotspotBand.GHZ_5
-            manualHotspotChannel = preparedHotspot.channel
-            manualHotspotSecurity = when (preparedHotspot.security) {
-                Iap2WirelessSecurity.NONE -> ManualHotspotSecurity.OPEN
-                Iap2WirelessSecurity.WPA_WPA2 -> ManualHotspotSecurity.WPA2
-                Iap2WirelessSecurity.WPA3_TRANSITION -> ManualHotspotSecurity.WPA3_TRANSITION
-                Iap2WirelessSecurity.WPA3_ONLY -> ManualHotspotSecurity.WPA3
-                Iap2WirelessSecurity.WEP -> error("Car hotspot security is unsupported by CarPlay")
-            }
-        }
-        if (MzdIntegration.enabled(this) && wirelessEnabled && !validateManualHotspotSettings()) {
-            showDiPlayHome("connection")
-            finish()
-            return
-        }
         val controllerGeneration = restartGeneration
         // Settings → Connection can change the target while this screen stays open (#696).
         mfiTarget = AirPlayPersistence.loadMfiTarget(this)
@@ -5718,9 +5666,9 @@ class CarPlayHostActivity : ComponentActivity() {
         val size = DisplaySize(width, height)
         if (size == pendingDisplaySize) return
         mainHandler.removeCallbacks(applyDisplaySize)
-        if (size == activeDisplaySize && !displayLayoutChanged()) {
+        if (size == activeDisplaySize && !displayLayoutChanged() && mazdaAreaMatches(size)) {
             pendingDisplaySize = null
-            if (MzdVideoLayout.isSettledPanel(width, height)) mazdaTransitionMask?.settle(width)
+            settleMazdaTransition(size)
             // A rotation back can cancel the last pending resize after teardown has finished.
             maybeStartCarPlay()
             return
@@ -5737,6 +5685,23 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun isMultiWindowActive(): Boolean {
         return Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInMultiWindowMode
+    }
+
+    // A rejected view-area command can leave the window at its endpoint with the old area.
+    // Do not release the transition mask (or skip a retry) merely because the size matches.
+    private fun mazdaAreaMatches(size: DisplaySize): Boolean {
+        if (mazdaTransitionMask?.isShowing != true || !MzdIntegration.cockpit(this) ||
+            !MzdVideoLayout.isSettledPanel(size.width, size.height)) return true
+        val areas = sessionDisplay?.viewAreas ?: return false
+        val kind = if (MzdViewAreas.isNarrow(size.width, size.height)) CarPlayViewAreas.Kind.SPLIT_SCREEN
+            else CarPlayViewAreas.Kind.FULL_SCREEN
+        return areas.kindOf(areas.current) == kind
+    }
+
+    private fun settleMazdaTransition(size: DisplaySize) {
+        if (MzdVideoLayout.isSettledPanel(size.width, size.height) && mazdaAreaMatches(size)) {
+            mazdaTransitionMask?.settle(size.width)
+        }
     }
 
 
@@ -6039,7 +6004,6 @@ class CarPlayHostActivity : ComponentActivity() {
         if (!CarPlayBackgroundSession.isOwner(this)) return
         if (shuttingDown.get() || menuOpen || handshakeResetInProgress) return
         val size = activeDisplaySize ?: return
-        mazdaHotspotPreparation?.cancel()
         startupRetryBudget.disconnected()
         startupRetryButton?.visibility = View.GONE
         appendLog(reason)
@@ -6260,7 +6224,6 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun shutdown(terminateProcess: Boolean, reason: String, completion: () -> Unit = {}) {
         if (!shuttingDown.compareAndSet(false, true)) { completion(); return }
-        mazdaHotspotPreparation?.cancel()
         callPopupSessionReady = false
         updateCallPopupGuard()
         resetSidePanel()
@@ -6452,7 +6415,9 @@ class CarPlayHostActivity : ComponentActivity() {
         pendingDisplaySize = null
         val mask = mazdaTransitionMask?.takeIf { it.view.parent === parent } ?: run {
             mazdaTransitionMask?.dispose()
-            MzdTransitionMask(parent, output, mainHandler, capture = { copied ->
+            // A sidebar switch can start while the return picture is still covering the video.
+            val coveredView = pictureHold?.takeIf { it.parent === parent } ?: output
+            MzdTransitionMask(parent, coveredView, mainHandler, capture = { copied ->
                 val display = sessionDisplay
                 val area = display?.viewAreas?.let { it.layoutArea(it.current) }
                 val width = minOf(display?.width ?: output.width, MzdTransitionPicture.CAPTURE_WIDTH).coerceAtLeast(1)
@@ -6483,7 +6448,8 @@ class CarPlayHostActivity : ComponentActivity() {
                 }
             }, requestPicture = { sink?.refreshPicture(SCREEN_TYPE_MAIN) },
                 renderedFrames = { sink?.liveVideoCounters()?.rendered ?: -1L },
-                textureOutput = output is TextureView).also { mazdaTransitionMask = it }
+                textureOutput = output is TextureView,
+                retryLayout = { scheduleDisplaySize(output.width, output.height) }).also { mazdaTransitionMask = it }
         }
         gestureSequenceActive = false
         gestureTracking = false
@@ -6491,7 +6457,7 @@ class CarPlayHostActivity : ComponentActivity() {
         mask.begin(targetWidth)
         // The shell only downsamples this borrowed active-area picture. Drawing a TextureView
         // into its software snapshot would otherwise leave a black strip behind the moving edge.
-        return (mask.picture.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
+        return mask.snapshot
     }
 
     /** Keep one bounded, in-memory picture before the OEM closes this window's video surface. */
@@ -6538,7 +6504,6 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun onHostTouch(view: View, event: MotionEvent): Boolean {
         if (menuOpen) return true
-        if (mazdaTransitionMask?.isShowing == true) return true
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -6594,6 +6559,10 @@ class CarPlayHostActivity : ComponentActivity() {
             }
             return true
         }
+
+        // Keep DiPlay's recovery/settings gesture available if the video stalls behind the mask.
+        // Only CarPlay contacts are blocked while the displayed picture and coordinates differ.
+        if (mazdaTransitionMask?.isShowing == true) return true
 
         val content = contentRect(view.width, view.height)
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {

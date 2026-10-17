@@ -6,7 +6,6 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.drawable.BitmapDrawable
 import android.graphics.SurfaceTexture
 import android.view.MotionEvent
 import android.view.TextureView
@@ -199,6 +198,49 @@ class MzdVideoTransitionTest {
         assertEquals(CarPlayVideoLayout.fit(2496, 1080, 700, 990), content(700, 990))
     }
 
+    @Test fun rejectedWideAreaStaysMaskedAndTheSameSizeCanRetryWithoutReconnecting() {
+        val controller = mock(CarPlayController::class.java)
+        `when`(controller.showViewArea(anyInt())).thenReturn(false)
+        ReflectionHelpers.setField(host, "controller", controller)
+        ReflectionHelpers.setField(host, "sink", mock(AndroidMediaSink::class.java))
+        val areas = MzdViewAreas.build(2496, 1080, CarPlayDock.AUTOMATIC, narrow = true)
+        install(2496, 1080, areas)
+        val output = object : TextureView(host) {
+            override fun isAvailable() = true
+            override fun getBitmap(width: Int, height: Int) =
+                Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        }
+        val root = FrameLayout(host).apply { addView(output, FrameLayout.LayoutParams(-1, -1)) }
+        host.setContentView(root)
+        fun layout(width: Int) {
+            root.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY))
+            root.layout(0, 0, width, 1080)
+        }
+        layout(1728)
+        ReflectionHelpers.setField(host, "videoView", output)
+        host.beginMazdaPanelTransition(2496)
+        val mask = ReflectionHelpers.getField<MzdTransitionMask>(host, "mazdaTransitionMask")
+        layout(2496)
+        ReflectionHelpers.callInstanceMethod<Void>(host, "scheduleDisplaySize",
+            ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType, 2496),
+            ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType, 1080))
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(600))
+        mask.textureUpdated()
+        assertEquals(CarPlayViewAreas.Kind.SPLIT_SCREEN, areas.kindOf(areas.current))
+        assertEquals("A frame at the new window width is not an accepted target area", 1f, mask.view.alpha, 0f)
+        `when`(controller.showViewArea(anyInt())).thenReturn(true)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1900))
+        assertEquals(CarPlayViewAreas.Kind.FULL_SCREEN, areas.kindOf(areas.current))
+        val full = requireNotNull(areas.index(CarPlayViewAreas.Kind.FULL_SCREEN, null))
+        verify(controller, times(2)).showViewArea(full)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(450))
+        mask.textureUpdated()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(250))
+        assertFalse(mask.isShowing)
+        assertEquals(0, ReflectionHelpers.getField<Int>(host, "restartGeneration"))
+    }
+
     @Test @GraphicsMode(GraphicsMode.Mode.NATIVE)
     fun hostCapturesTheOldNarrowActiveAreaBeforeExpandingInsteadOfTheWholeBlackPaddedCanvas() {
         ReflectionHelpers.setField(host, "sink", mock(AndroidMediaSink::class.java))
@@ -216,6 +258,11 @@ class MzdVideoTransitionTest {
             }
         }
         val root = FrameLayout(host).apply { addView(output, FrameLayout.LayoutParams(-1, -1)) }
+        val parkedPicture = android.widget.ImageView(host).apply { setBackgroundColor(Color.MAGENTA) }
+        val touches = View(host)
+        root.addView(parkedPicture, FrameLayout.LayoutParams(-1, -1))
+        root.addView(touches, FrameLayout.LayoutParams(-1, -1))
+        ReflectionHelpers.setField(host, "pictureHold", parkedPicture)
         host.setContentView(root)
         root.measure(View.MeasureSpec.makeMeasureSpec(1728, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY))
@@ -223,10 +270,18 @@ class MzdVideoTransitionTest {
         ReflectionHelpers.setField(host, "videoView", output)
         val backdrop = host.beginMazdaPanelTransition(2496)
         val mask = ReflectionHelpers.getField<MzdTransitionMask>(host, "mazdaTransitionMask")
-        val picture = (mask.picture.drawable as BitmapDrawable).bitmap
+        val picture = requireNotNull(mask.snapshot)
         assertSame("The shell must reuse the cropped active picture, not software-capture the TextureView", picture, backdrop)
         assertEquals(Color.CYAN, picture.getPixel(picture.width - 1, picture.height / 2))
         assertTrue(mask.isShowing)
+        assertTrue("The return picture must stay below the blur", root.indexOfChild(parkedPicture) < root.indexOfChild(mask.view))
+        assertTrue("Touch and settings controls must stay above the blur", root.indexOfChild(mask.view) < root.indexOfChild(touches))
+        root.measure(View.MeasureSpec.makeMeasureSpec(2496, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY))
+        root.layout(0, 0, 2496, 1080)
+        val rendered = Bitmap.createBitmap(2496, 1080, Bitmap.Config.ARGB_8888)
+        root.draw(Canvas(rendered))
+        assertTrue("The clear parked picture must not cover the transition", Color.red(rendered.getPixel(1248, 540)) < 100)
         mask.dispose()
     }
 

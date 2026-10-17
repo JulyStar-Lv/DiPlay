@@ -1,5 +1,5 @@
 <resources>
     <string name="mazda_usb_connection">Conexión USB</string>
     <string name="mazda_update_manual">Esta versión EZ60 se actualiza manualmente. Instala una versión Mazda firmada con la misma clave.</string>
-    <string name="mazda_home_instructions">Empareja el iPhone en el Bluetooth del coche y conecta.\nMantén Bluetooth y Wi-Fi activados.</string>
+    <string name="mazda_home_instructions">Punto de acceso del coche: actívalo y guarda su nombre y contraseña en Ajustes → Conexión.\nEmpareja el iPhone en los ajustes de Bluetooth del coche y conecta.\nMantén Bluetooth y Wi-Fi del iPhone activados.</string>
 </resources>

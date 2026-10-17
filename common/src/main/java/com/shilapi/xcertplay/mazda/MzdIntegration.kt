@@ -8,20 +8,13 @@ import android.provider.Settings
 import android.util.Log
 import android.view.View
 import com.shilapi.xcertplay.host.R
-import com.shilapi.xcertplay.AirPlayPersistence
 import com.shilapi.xcertplay.CarPlayHostActivity
-import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
-import com.shilapi.xcertplay.network.mazda.MzdCarHotspot
 import java.util.WeakHashMap
 
 internal object MzdIntegration {
     private val windows = WeakHashMap<Activity, Unit>()
 
     fun enabled(context: Context) = context.resources.getBoolean(R.bool.config_mazda)
-
-    fun automaticHotspot(context: Context) = enabled(context) &&
-        AirPlayPersistence.loadWirelessHotspotMode(context) == WirelessHotspotMode.MANUAL &&
-        MzdCarHotspot.permitted(context)
 
     fun wrap(activity: Activity, content: View): View {
         if (!enabled(activity)) return content
