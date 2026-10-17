@@ -5,6 +5,7 @@ import com.shilapi.xcertplay.mazda.MzdCarAppLayout
 import com.shilapi.xcertplay.mazda.MzdConnectionView
 import com.shilapi.xcertplay.mazda.MzdViewAreas
 import com.shilapi.xcertplay.mazda.MzdVideoLayout
+import com.shilapi.xcertplay.mazda.MzdVideoCanvas
 import com.shilapi.xcertplay.mazda.MzdVideoCoordinator
 import android.app.AlertDialog
 import android.Manifest
@@ -1909,7 +1910,16 @@ class CarPlayHostActivity : ComponentActivity() {
                 InterfaceSize.attach(this, this@CarPlayHostActivity)?.let { InterfaceSize.enforce(resources, it) }
             }
         } else this
-        val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(Color.BLACK)
+            if (MzdIntegration.enabled(this@CarPlayHostActivity)) clipChildren = false
+        }
+        val videoCanvas = if (MzdIntegration.enabled(this)) MzdVideoCanvas(this).also { canvas ->
+            root.addView(canvas, FrameLayout.LayoutParams(-1, -1))
+            canvas.addOnLayoutChangeListener { _, l, t, r, b, oldL, oldT, oldR, oldB ->
+                if (r - l != oldR - oldL || b - t != oldB - oldT) scheduleDisplaySize(r - l, b - t)
+            }
+        } else root
         val video = TextureView(this).apply {
             isOpaque = false
             surfaceTextureListener = textureListener
@@ -1919,10 +1929,10 @@ class CarPlayHostActivity : ComponentActivity() {
             isClickable = true
             setOnTouchListener { view, event -> onHostTouch(view, event) }
         }
-        root.addView(video, FrameLayout.LayoutParams(-1, -1))
+        videoCanvas.addView(video, FrameLayout.LayoutParams(-1, -1))
         blackCornerOverlay = CarPlayBlackCornerOverlay(this).also { overlay ->
             overlay.radiusDp = localCornerRadius()
-            root.addView(overlay, FrameLayout.LayoutParams(-1, -1))
+            videoCanvas.addView(overlay, FrameLayout.LayoutParams(-1, -1))
         }
         root.addView(gestureLayer, FrameLayout.LayoutParams(-1, -1))
         // Measure the preparation content naturally, then fit it inside the safe viewport.
@@ -2329,7 +2339,8 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     // The panel's strip of the stream, mapped through the video's layout in the window.
-    private fun placeSidePanel(viewWidth: Int, viewHeight: Int) {
+    private fun placeSidePanel(outputWidth: Int, viewHeight: Int) {
+        val viewWidth = videoViewportWidth(outputWidth)
         val panel = sidePanel ?: return
         val display = sessionDisplay ?: return
         val strip = display.viewAreas?.let { it.panelRect(it.current) } ?: return
@@ -2355,7 +2366,8 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     // The whole screen CarPlay lays out by (the panel's strip included), in the window.
-    private fun sidePanelScreenRect(viewWidth: Int, viewHeight: Int): RectF? {
+    private fun sidePanelScreenRect(outputWidth: Int, viewHeight: Int): RectF? {
+        val viewWidth = videoViewportWidth(outputWidth)
         val display = sessionDisplay ?: return null
         val screen = display.viewAreas?.let { it.layoutArea(it.current) } ?: return null
         val content = contentRect(viewWidth, viewHeight)
@@ -2371,7 +2383,8 @@ class CarPlayHostActivity : ComponentActivity() {
         setOnTouchListener { view, event -> onSidePanelTabTouch(view, event) }
     }
 
-    private fun placeSidePanelTab(viewWidth: Int, viewHeight: Int) {
+    private fun placeSidePanelTab(outputWidth: Int, viewHeight: Int) {
+        val viewWidth = videoViewportWidth(outputWidth)
         val tab = sidePanelTab ?: return
         val from = sidePanelOpenEdge()
         val screen = sidePanelScreenRect(viewWidth, viewHeight)
@@ -2602,7 +2615,7 @@ class CarPlayHostActivity : ComponentActivity() {
         val contents = dp(32).toFloat()
         sidePanelContents?.setRenderEffect(
             RenderEffect.createBlurEffect(contents, contents, Shader.TileMode.DECAL))
-        val content = contentRect(view.width, view.height)
+        val content = contentRect(videoViewportWidth(view.width), view.height)
         val width = (content.width / 4).toInt().coerceAtLeast(1)
         val height = (content.height / 4).toInt().coerceAtLeast(1)
         val show = { picture: Bitmap ->
@@ -2642,10 +2655,11 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun showSidePanel(show: Boolean) {
         val areas = sessionDisplay?.viewAreas ?: return
         val view = videoView ?: return
+        val width = videoViewportWidth(view.width)
         val split = isMultiWindowActive() || (MzdIntegration.cockpit(this) &&
-            MzdViewAreas.isNarrow(view.width, view.height))
-        val portrait = if (split) screenPortrait() else view.height > view.width
-        val target = if (show) areas.sidePanel(portrait, SidePanelSettings.sixths(this)) else areas.indexFor(view.width, view.height, split, portrait)
+            MzdViewAreas.isNarrow(width, view.height))
+        val portrait = if (split) screenPortrait() else view.height > width
+        val target = if (show) areas.sidePanel(portrait, SidePanelSettings.sixths(this)) else areas.indexFor(width, view.height, split, portrait)
         val sent = target != null && controller?.showViewArea(target) == true
         appendLog("Side panel ${if (show) "shown" else "hidden"}: view area $target sent=$sent")
         if (!sent || target == null) return
@@ -4932,7 +4946,7 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         val viewAreas = if (MzdIntegration.cockpit(this)) {
             MzdViewAreas.build(display.widthPixels, display.heightPixels, dock,
-                videoView?.width == 1728, SidePanelSettings.enabled(this), rightHandDrive)
+                videoViewportWidth(videoView?.width ?: 0) == 1728, SidePanelSettings.enabled(this), rightHandDrive)
         } else if (square == null) {
             CarPlayViewAreas.build(display.widthPixels, display.heightPixels, listOf(
                 CarPlayViewAreas.Screen(display.widthPixels, display.heightPixels, portrait = display.heightPixels > display.widthPixels),
@@ -5062,7 +5076,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun currentActivitySize(): DisplaySize? {
         val view = videoView
         if (view != null && view.width > 0 && view.height > 0) {
-            return DisplaySize(view.width, view.height)
+            return DisplaySize(videoViewportWidth(view.width), view.height)
         }
         return activeDisplaySize
     }
@@ -5660,9 +5674,24 @@ class CarPlayHostActivity : ComponentActivity() {
         return File(filesDir, AUDIO_CAPTURE_DIRECTORY)
     }
 
-    private fun scheduleDisplaySize(width: Int, height: Int) {
+    private fun videoViewportWidth(outputWidth: Int): Int {
+        val canvas = videoView?.parent as? MzdVideoCanvas
+        return if (canvas?.isFixedCanvas == true && outputWidth == MzdVideoCanvas.WIDTH)
+            canvas.width else outputWidth
+    }
+
+    private fun scheduleDisplaySize(outputWidth: Int, height: Int) {
+        // Surface callbacks report the unchanged full canvas; negotiation follows the panel crop.
+        val width = videoViewportWidth(outputWidth)
         if (width <= 0 || height <= 0 || shuttingDown.get()) return
         val size = DisplaySize(width, height)
+        if (mazdaVideo?.isPanelMoving == true) {
+            // The video viewport is prepared once at the target size. Its layer is still moving;
+            // leave endpoint bookkeeping and frame validation until that motion has finished.
+            mainHandler.removeCallbacks(applyDisplaySize)
+            pendingDisplaySize = size
+            return
+        }
         if (size == pendingDisplaySize) return
         mainHandler.removeCallbacks(applyDisplaySize)
         if (size == activeDisplaySize && !displayLayoutChanged() && (mazdaVideo?.areaMatches(size.width, size.height) != false)) {
@@ -5778,7 +5807,12 @@ class CarPlayHostActivity : ComponentActivity() {
         val target = areas.indexFor(size.width, size.height, split, portrait) ?: return false
         if (sidePanelShown) resetSidePanel() // a turn or the split screen ends the side panel
         // The same whole-screen area without a turn (a camera window, say) keeps the usual handling.
-        if (!turned && target == areas.current && areas.kindOf(target) == CarPlayViewAreas.Kind.FULL_SCREEN) return false
+        // A Mazda transition can have requested the full area before the window reaches it.
+        // Complete that resize here too, including a session originally started in the narrow panel.
+        val mazdaEndpoint = mazdaVideo?.isTransitionShowing == true && MzdIntegration.cockpit(this) &&
+            MzdVideoLayout.isSettledPanel(size.width, size.height)
+        if (!turned && target == areas.current && areas.kindOf(target) == CarPlayViewAreas.Kind.FULL_SCREEN &&
+            !mazdaEndpoint) return false
         activeDisplaySize = size
         sessionDisplay = display.copy(rotation = displayRotation())
         val sent = if (target == areas.current) true else controller?.showViewArea(target) == true
@@ -5829,6 +5863,10 @@ class CarPlayHostActivity : ComponentActivity() {
         // follow this. An area of the whole canvas keeps the usual fit.
         display.viewAreas?.let { areas ->
             val area = areas.layoutArea(areas.current)
+            if ((videoView?.parent as? MzdVideoCanvas)?.isFixedCanvas == true &&
+                MzdVideoLayout.isPanel(viewWidth, viewHeight)) {
+                return MzdVideoLayout.fixedCanvas(display.width, display.height, area, viewWidth)
+            }
             if (MzdIntegration.cockpit(this) && MzdVideoLayout.isPanel(viewWidth, viewHeight)) {
                 // The OEM panel changes width before the iPhone changes view areas. Cover it
                 // throughout that interval instead of fitting a wide frame into a narrow window.
@@ -5852,7 +5890,9 @@ class CarPlayHostActivity : ComponentActivity() {
             content.left + content.width, content.top + content.height))
         val fallback = fallbackVideoView
         if (fallback != null) {
-            val bounds = CarPlaySurfaceBounds.from(content)
+            val fixed = (view.parent as? MzdVideoCanvas)?.isFixedCanvas == true
+            val bounds = if (fixed) CarPlaySurfaceBounds.from(CarPlayVideoLayout(0f, 0f,
+                MzdVideoCanvas.WIDTH.toFloat(), MzdVideoCanvas.HEIGHT.toFloat())) else CarPlaySurfaceBounds.from(content)
             if (fallbackVideoBounds != bounds) {
                 fallbackVideoBounds = bounds
                 fallback.layoutParams = FrameLayout.LayoutParams(bounds.width, bounds.height,
@@ -5861,14 +5901,23 @@ class CarPlayHostActivity : ComponentActivity() {
                     topMargin = bounds.top
                 }
             }
+            // SurfaceView's RenderThread follows these transforms without resizing its Surface.
+            // A narrow area's edge guard must not allocate new buffers at the animation endpoint.
+            fallback.pivotX = 0f
+            fallback.pivotY = 0f
+            fallback.scaleX = if (fixed) content.width / bounds.width else 1f
+            fallback.scaleY = if (fixed) content.height / bounds.height else 1f
+            fallback.translationX = if (fixed) content.left else 0f
+            fallback.translationY = if (fixed) content.top else 0f
         } else {
             (view as? TextureView)?.setTransform(Matrix().apply {
                 setScale(content.width / viewWidth, content.height / viewHeight)
                 postTranslate(content.left, content.top)
             })
         }
-        if (sidePanelShown) placeSidePanel(viewWidth, viewHeight)
-        placeSidePanelTab(viewWidth, viewHeight)
+        val panelWidth = videoViewportWidth(viewWidth)
+        if (sidePanelShown) placeSidePanel(panelWidth, viewHeight)
+        placeSidePanelTab(panelWidth, viewHeight)
     }
 
     private fun recordDetectedMaximum(size: DisplaySize) {
@@ -6392,18 +6441,35 @@ class CarPlayHostActivity : ComponentActivity() {
             val live = sink
             if (output == null || live == null) null else
                 MzdVideoCoordinator.State(output, currentSurface, sessionDisplay, live, pictureHold)
-        }, retryLayout = ::scheduleDisplaySize).also { mazdaVideo = it }
+        }, retryLayout = ::scheduleDisplaySize, requestArea = { index ->
+            if (menuOpen || handshakeResetInProgress || shuttingDown.get() || sidePanelShown) false
+            else controller?.showViewArea(index) == true
+        }).also { mazdaVideo = it }
     }
 
     /** Called before the OEM sidebar changes the viewport. */
-    internal fun beginMazdaPanelTransition(targetWidth: Int) {
-        if (shuttingDown.get() || isFinishing || connectionPanel?.visibility == View.VISIBLE ||
-            mazdaVideoIntegration()?.begin(targetWidth) != true) return
-        mainHandler.removeCallbacks(applyDisplaySize)
-        pendingDisplaySize = null
+    internal fun beginMazdaPanelTransition(targetWidth: Int, deferUntilPanelEnd: Boolean = false): Boolean {
+        if (shuttingDown.get() || isFinishing || connectionPanel?.visibility == View.VISIBLE) return false
+        val integration = mazdaVideoIntegration() ?: return false
+        // Visible menus and side panels keep their usual responsive layout. Covered video uses
+        // one prepared chrome layout and a moving crop over its fixed canvas.
+        val layerMotion = deferUntilPanelEnd && !menuOpen && !sidePanelShown && !handshakeResetInProgress
+        // Release contacts using the old area before asking the iPhone to change their geometry.
         gestureSequenceActive = false
         gestureTracking = false
         controller?.sendTouch(emptyList())
+        if (!integration.begin(targetWidth, layerMotion)) return false
+        videoView?.let { updateVideoLayout(it.width, it.height) }
+        mainHandler.removeCallbacks(applyDisplaySize)
+        pendingDisplaySize = null
+        return !deferUntilPanelEnd || layerMotion
+    }
+
+    internal fun endMazdaPanelTransition(targetWidth: Int) {
+        if (mazdaVideo?.endPanelTransition(targetWidth) != true) return
+        mainHandler.removeCallbacks(applyDisplaySize)
+        pendingDisplaySize = null
+        videoView?.let { scheduleDisplaySize(targetWidth, it.height) }
     }
 
     internal fun keepMazdaReturnPicture() {

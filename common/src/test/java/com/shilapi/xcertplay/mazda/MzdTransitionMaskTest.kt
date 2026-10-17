@@ -85,6 +85,46 @@ class MzdTransitionMaskTest {
         assertFalse(mask.isShowing)
     }
 
+    @Test fun areaNegotiationOverlapsThePanelAnimationInsteadOfAddingAnotherGuardAtItsEndpoint() {
+        mask.begin(1728)
+        mask.areaRequested(1728)
+        idle(400)
+        mask.textureUpdated()
+        assertTrue("A prepared frame must not bypass the moving window", checks.isEmpty())
+        mask.settle(1728)
+        idle(49)
+        assertEquals(0, requests)
+        idle(1)
+        assertEquals("Only the remaining 50 ms guard belongs after the 400 ms animation", 1, requests)
+        mask.textureUpdated()
+        assertEquals("A presentation callback must not wait for the next 50 ms poll", 1, checks.size)
+        checks.last()(true)
+        idle(16)
+        mask.textureUpdated()
+        assertEquals(2, checks.size)
+        checks.last()(true)
+        idle(200)
+        assertFalse(mask.isShowing)
+    }
+
+    @Test fun aSlowPanelStillGatesReadyFramesAndAReversalRestartsTheAreaGuard() {
+        mask.begin(1728); mask.areaRequested(1728)
+        idle(800)
+        mask.textureUpdated()
+        assertTrue(checks.isEmpty())
+        mask.settle(1728); idle(0)
+        present(true)
+        mask.begin(2496)
+        mask.areaRequested(1728) // A late notification for the previous direction is not preparation.
+        mask.settle(2496)
+        val beforeGuard = checks.size
+        mask.textureUpdated(); idle(449)
+        assertEquals(beforeGuard, checks.size)
+        idle(1)
+        present(true); present(true); idle(200)
+        assertFalse(mask.isShowing)
+    }
+
     @Test fun theSameTextureBufferCannotCountAsTwoFramesOrLaunchConcurrentCopies() {
         mask.begin(); mask.settle(); idle(450)
         mask.textureUpdated(); idle(50)
@@ -185,8 +225,8 @@ class MzdTransitionMaskTest {
     }
 
     private fun present(ready: Boolean) {
-        mask.textureUpdated()
         val previous = checks.size
+        mask.textureUpdated()
         idle(50)
         assertEquals(previous + 1, checks.size)
         checks.last()(ready)

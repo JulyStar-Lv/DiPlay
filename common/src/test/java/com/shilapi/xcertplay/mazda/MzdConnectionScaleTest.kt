@@ -101,9 +101,10 @@ class MzdConnectionScaleTest {
                 assertEquals(1f, host.resources.displayMetrics.density, 0f)
                 assertEquals(160, host.resources.configuration.densityDpi)
                 assertEquals(5120, host.resources.configuration.screenWidthDp)
-                val video = root.getChildAt(0) as TextureView
+                val canvas = root.getChildAt(0) as MzdVideoCanvas
+                val video = canvas.getChildAt(0) as TextureView
                 val touches = ReflectionHelpers.getField<View>(host, "gestureOverlay")
-                for (layer in listOf(root, video, touches)) {
+                for (layer in listOf(root, canvas, video, touches)) {
                     assertSame(host, layer.context)
                     assertEquals(2496, layer.width)
                     assertEquals(1080, layer.height)

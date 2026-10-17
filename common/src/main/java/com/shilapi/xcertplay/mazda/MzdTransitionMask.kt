@@ -1,12 +1,15 @@
 package com.shilapi.xcertplay.mazda
 
 import android.graphics.Color
+import android.graphics.Bitmap
 import android.os.Handler
+import android.os.SystemClock
 import android.util.Log
 import android.view.View
 import android.widget.FrameLayout
+import android.widget.ImageView
 
-/** Neutral coverage until two new presentations match the settled CarPlay view area. */
+/** Blurred last active area, with opaque fallback, until two new target presentations are ready. */
 internal class MzdTransitionMask(
     parent: FrameLayout,
     coveredView: View,
@@ -17,7 +20,14 @@ internal class MzdTransitionMask(
     private val textureOutput: Boolean,
     private val retryLayout: () -> Unit = {},
 ) {
-    val view = View(parent.context).apply {
+    private var updatingPicture = false
+    val view = object : ImageView(parent.context) {
+        override fun requestLayout() {
+            // A late asynchronous snapshot changes pixels, never the prepared animation layout.
+            if (!updatingPicture) super.requestLayout() else invalidate()
+        }
+    }.apply {
+        scaleType = ImageView.ScaleType.FIT_XY
         isClickable = false
         isFocusable = false
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -25,8 +35,15 @@ internal class MzdTransitionMask(
         visibility = View.GONE
     }
     val isShowing: Boolean get() = view.visibility == View.VISIBLE
+    val hasPicture: Boolean get() = view.drawable != null
+    fun showPicture(picture: Bitmap) {
+        if (!isShowing || fading) return
+        updatingPicture = true
+        try { view.setImageBitmap(picture) } finally { updatingPicture = false }
+    }
     private var generation = 0
     private var targetWidth: Int? = null
+    private var areaRequestedAt: Long? = null
     private var settled = false
     private var waitingForFrame = false
     private var fading = false
@@ -45,23 +62,27 @@ internal class MzdTransitionMask(
     private val poll = object : Runnable {
         override fun run() {
             if (!isShowing || !waitingForFrame) return
-            val frame = presentations()
-            // Surface recreation can restart the decoder's counter. A different positive count
-            // is a new presentation too; requiring it to exceed the old total can stall forever.
-            if (!checking && frame > 0 && frame != baseline) {
-                baseline = frame
-                checking = true
-                val token = generation
-                checkFrame { ready ->
-                    if (token != generation || !isShowing || !waitingForFrame) return@checkFrame
-                    checking = false
-                    readyFrames = if (ready) readyFrames + 1 else 0
-                    if (readyFrames >= REQUIRED_READY_FRAMES) finish()
-                    // A static page needs another presentation too; never count the same buffer twice.
-                    else if (ready) requestPicture()
-                }
-            }
+            inspectFrame()
             if (waitingForFrame) handler.postDelayed(this, FRAME_POLL_MILLIS)
+        }
+    }
+
+    private fun inspectFrame() {
+        if (!isShowing || !waitingForFrame || checking) return
+        val frame = presentations()
+        // Surface recreation can restart the decoder's counter. A different positive count
+        // is a new presentation too; requiring it to exceed the old total can stall forever.
+        if (frame <= 0 || frame == baseline) return
+        baseline = frame
+        checking = true
+        val token = generation
+        checkFrame { ready ->
+            if (token != generation || !isShowing || !waitingForFrame) return@checkFrame
+            checking = false
+            readyFrames = if (ready) readyFrames + 1 else 0
+            if (readyFrames >= REQUIRED_READY_FRAMES) finish()
+            // A static page needs another presentation too; never count the same buffer twice.
+            else if (ready) requestPicture()
         }
     }
     private val timeout = object : Runnable {
@@ -93,6 +114,7 @@ internal class MzdTransitionMask(
     fun begin(width: Int? = null) {
         ++generation
         targetWidth = width
+        areaRequestedAt = null
         cancelCallbacks()
         view.animate().cancel()
         settled = false
@@ -106,22 +128,36 @@ internal class MzdTransitionMask(
         handler.postDelayed(recover, MAX_TRANSITION_MILLIS)
     }
 
+    fun areaRequested(width: Int? = null) {
+        if (!isShowing || areaRequestedAt != null || (targetWidth != null && width != targetWidth)) return
+        areaRequestedAt = SystemClock.uptimeMillis()
+    }
+
     fun settle(width: Int? = null) {
         if (!isShowing || settled || (targetWidth != null && width != targetWidth)) return
         settled = true
+        areaRequested(width)
         handler.removeCallbacks(timeout)
-        // Keep the minimum guard for the iPhone's 300 ms area animation, then inspect pixels.
-        handler.postDelayed(arm, VIDEO_SETTLE_MILLIS)
+        // Overlap the iPhone's 300 ms area animation with the OEM panel movement. The endpoint
+        // still gates inspection, but must not start another full guard after a 400 ms resize.
+        val remaining = (VIDEO_SETTLE_MILLIS - (SystemClock.uptimeMillis() - requireNotNull(areaRequestedAt)))
+            .coerceAtLeast(0L)
+        handler.postDelayed(arm, remaining)
         handler.postDelayed(timeout, SETTLED_TIMEOUT_MILLIS)
     }
 
-    fun textureUpdated() { ++textureFrames }
+    fun textureUpdated() {
+        ++textureFrames
+        // A presentation callback is already on the UI thread; do not add a 50 ms poll delay.
+        if (textureOutput) inspectFrame()
+    }
 
     fun dispose() {
         ++generation
         cancelCallbacks()
         view.animate().cancel()
         view.visibility = View.GONE
+        view.setImageDrawable(null)
         waitingForFrame = false
         fading = false
         checking = false
@@ -135,7 +171,10 @@ internal class MzdTransitionMask(
         cancelCallbacks()
         waitingForFrame = false
         view.animate().alpha(0f).setDuration(FADE_MILLIS).withEndAction {
-            if (generation == token) view.visibility = View.GONE
+            if (generation == token) {
+                view.visibility = View.GONE
+                view.setImageDrawable(null)
+            }
         }.start()
     }
 

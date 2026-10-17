@@ -12,7 +12,7 @@ internal object MzdViewAreas {
         val areas = requireNotNull(CarPlayViewAreas.build(width, height,
             listOf(CarPlayViewAreas.Screen(width, height, portrait = false)), dock,
             splitWindow = { 1728f / 2496f to 1f }, startPortrait = false,
-            sidePanel = sidePanel, rightHandDrive = rightHandDrive))
+            sidePanel = sidePanel, rightHandDrive = rightHandDrive, splitAtRight = true))
         if (narrow) areas.index(CarPlayViewAreas.Kind.SPLIT_SCREEN, dock.edge)?.let(areas::use)
         return areas
     }

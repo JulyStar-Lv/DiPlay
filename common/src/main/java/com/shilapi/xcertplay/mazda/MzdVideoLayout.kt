@@ -21,6 +21,22 @@ internal object MzdVideoLayout {
     fun isSettledPanel(width: Int, height: Int) = isPanel(width, height) &&
         (width == 1728 || width == 2496)
 
+    /** Canvas coordinates stay anchored at the same physical point behind the right-hand crop. */
+    fun fixedCanvas(canvasWidth: Int, canvasHeight: Int, area: AirPlayViewArea,
+        viewportWidth: Int): CarPlayVideoLayout {
+        // Stream sizes are rounded to even pixels. Anchor to the exact OEM crop, not the
+        // rounded area's fraction of the canvas, which can otherwise expose a black sliver.
+        val physicalAreaWidth = if (area.originX > 0 && area.width < canvasWidth) 1728f
+            else MzdVideoCanvas.WIDTH.toFloat()
+        val areaLeft = MzdVideoCanvas.WIDTH - physicalAreaWidth
+        val scale = maxOf(physicalAreaWidth /
+            (area.width - rightEdgeGuard(canvasWidth, area)).coerceAtLeast(1f),
+            MzdVideoCanvas.HEIGHT.toFloat() / canvasHeight)
+        return CarPlayVideoLayout(viewportWidth - MzdVideoCanvas.WIDTH + areaLeft - area.originX * scale,
+            (MzdVideoCanvas.HEIGHT - canvasHeight * scale) / 2f,
+            canvasWidth * scale, canvasHeight * scale)
+    }
+
     fun cover(canvasWidth: Int, canvasHeight: Int, area: AirPlayViewArea,
         viewWidth: Int, viewHeight: Int): CarPlayVideoLayout {
         val scale = maxOf(viewWidth.toFloat() / (area.width - rightEdgeGuard(canvasWidth, area)).coerceAtLeast(1f),

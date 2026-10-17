@@ -26,6 +26,56 @@ import org.robolectric.annotation.LooperMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class MzdTransitionFrameTest {
+    @Test @Config(sdk = [30, 34])
+    fun blurredRightAreaDoesNotImportBlackPaddingOrExposeSharpOldControls() {
+        RuntimeEnvironment.setFontScale(1.5f)
+        for (divisor in listOf(1, 2)) {
+            val area = AirPlayViewArea(1728 / divisor, 1080 / divisor, 768 / divisor)
+            val source = picture(2496 / divisor, 1080 / divisor, area)
+            val blur = requireNotNull(MzdTransitionPicture.blur(source, 2496 / divisor, 1080 / divisor, area))
+            try {
+                for (x in 0 until blur.width) for (y in 0 until blur.height)
+                    assertEquals("Unused black pixels must stay out of the blurred fallback",
+                        Color.rgb(31, 94, 146), blur.getPixel(x, y))
+                // A sharp vertical division must become several intermediate colours.
+                Canvas(source).drawRect((source.width * .65f), 0f, source.width.toFloat(), source.height.toFloat(),
+                    Paint().apply { color = Color.WHITE })
+                val softened = requireNotNull(MzdTransitionPicture.blur(source, 2496 / divisor, 1080 / divisor, area))
+                try {
+                    assertTrue((0 until softened.width).count {
+                        val color = softened.getPixel(it, softened.height / 2)
+                        color != Color.WHITE && color != Color.rgb(31, 94, 146)
+                    } >= 3)
+                    val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+                    val root = FrameLayout(activity)
+                    val video = View(activity).apply { setBackgroundColor(Color.BLACK) }
+                    root.addView(video, FrameLayout.LayoutParams(-1, -1))
+                    val mask = MzdTransitionMask(root, video, Handler(Looper.getMainLooper()),
+                        checkFrame = { it(false) }, requestPicture = {}, renderedFrames = { 0 }, textureOutput = true)
+                    try {
+                        mask.begin(2496)
+                        mask.showPicture(softened)
+                        for (width in listOf(1728, 2496)) {
+                            root.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                                View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY))
+                            root.layout(0, 0, width, 1080)
+                            val rendered = Bitmap.createBitmap(width, 1080, Bitmap.Config.ARGB_8888)
+                            try {
+                                root.draw(Canvas(rendered))
+                                for (x in 0 until width step 8) assertNotEquals(Color.BLACK, rendered.getPixel(x, 540))
+                                if (divisor == 1) {
+                                    val file = File("build/reports/mazda-ui/transition-blur-$width-large-font.png")
+                                    file.parentFile?.mkdirs()
+                                    file.outputStream().use { rendered.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                                }
+                            } finally { rendered.recycle() }
+                        }
+                    } finally { mask.dispose(); activity.finish() }
+                } finally { softened.recycle() }
+            } finally { source.recycle(); blur.recycle() }
+        }
+    }
+
     @Test fun oldWideAndNarrowPicturesCannotConfirmTheOppositeTargetAtEitherCanvasScale() {
         for (divisor in listOf(1, 2)) for (origin in listOf(0, 768)) {
             val width = 2496 / divisor

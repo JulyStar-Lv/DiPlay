@@ -2,17 +2,23 @@ package com.shilapi.xcertplay.mazda
 
 import android.os.Handler
 import android.os.Looper
+import android.animation.ValueAnimator
+import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.RectF
 import android.graphics.SurfaceTexture
+import android.provider.Settings
 import android.view.PixelCopy
 import android.view.Surface
+import android.view.SurfaceView
 import android.view.MotionEvent
 import android.view.TextureView
 import android.view.View
 import android.widget.FrameLayout
 import com.shilapi.xcertplay.CarPlayDock
+import com.shilapi.xcertplay.AirPlayPersistence
 import com.shilapi.xcertplay.CarPlayHostActivity
 import com.shilapi.xcertplay.CarPlaySessionDisplay
 import com.shilapi.xcertplay.CarPlayViewAreas
@@ -37,6 +43,7 @@ import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
 import org.robolectric.annotation.GraphicsMode
 import org.robolectric.annotation.LooperMode
+import org.robolectric.shadows.ShadowChoreographer
 import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
@@ -56,9 +63,13 @@ class MzdVideoTransitionTest {
         VideoPixels.fraction = 1f
         VideoPixels.copies = 0
         VideoPixels.result = PixelCopy.SUCCESS
+        VideoPixels.color = Color.CYAN
+        VideoPixels.deferCopies = false
+        VideoPixels.pending.clear()
     }
 
     @After fun tearDown() {
+        VideoPixels.pending.clear()
         ReflectionHelpers.callInstanceMethod<Void>(host, "discardLastPicture")
         ReflectionHelpers.getField<Handler>(host, "mainHandler").removeCallbacksAndMessages(null)
         ReflectionHelpers.getField<ExecutorService>(host, "teardownExecutor").shutdownNow()
@@ -91,6 +102,7 @@ class MzdVideoTransitionTest {
         assertTrue("The mask must precede the first changed-width layout", mask.isShowing)
         assertEquals(2496, output.width)
         verify(controller).sendTouch(emptyList())
+        verify(controller).showViewArea(requireNotNull(areas.index(CarPlayViewAreas.Kind.SPLIT_SCREEN, null)))
         ReflectionHelpers.getField<android.animation.ValueAnimator?>(shell, "panelAnimator")?.end()
         layout()
         assertEquals(1728, mask.view.width)
@@ -212,6 +224,141 @@ class MzdVideoTransitionTest {
         assertEquals(CarPlayVideoLayout.fit(2496, 1080, 700, 990), content(700, 990))
     }
 
+    @Test fun rightHandCanvasKeepsVideoSizeAndTouchCoordinatesAtBothStreamScales() {
+        for ((canvasWidth, canvasHeight) in listOf(2496 to 1080, 1248 to 540, 1920 to 830, 2700 to 1168))
+            for (dock in CarPlayDock.entries) {
+            val areas = MzdViewAreas.build(canvasWidth, canvasHeight, dock, narrow = true)
+            val narrow = requireNotNull(areas.index(CarPlayViewAreas.Kind.SPLIT_SCREEN, dock.edge))
+            assertEquals(canvasWidth - areas.areas[narrow].width, areas.areas[narrow].originX)
+            install(canvasWidth, canvasHeight, areas)
+            for (surfaceOutput in listOf(false, true)) {
+                var changes = 0
+                val output = object : FrameLayout(host) {
+                    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+                        super.onSizeChanged(w, h, oldw, oldh); changes++
+                    }
+                }
+                val canvas = MzdVideoCanvas(host).apply { addView(output, FrameLayout.LayoutParams(-1, -1)) }
+                if (surfaceOutput) output.addView(View(host), FrameLayout.LayoutParams(-1, -1))
+                ReflectionHelpers.setField(host, "videoView", output)
+                for (width in listOf(1728, 2496, 1728, 2496)) {
+                    canvas.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY))
+                    canvas.layout(0, 0, width, 1080)
+                    assertEquals(2496, output.width)
+                    assertEquals(1080, output.height)
+                    assertEquals(width - 2496, output.left)
+                    assertEquals("Narrow startup and repeated switches retain their video buffers", 1, changes)
+                    val picture = content(width, 1080)
+                    val sidePanelScreen = ReflectionHelpers.callInstanceMethod<RectF>(host, "sidePanelScreenRect",
+                        ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType, output.width),
+                        ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType, output.height))
+                    val screen = areas.layoutArea(areas.current)
+                    assertEquals("Side-panel hit testing uses window coordinates, not the full-size surface",
+                        picture.left + screen.originX * picture.width / canvasWidth, sidePanelScreen.left, .001f)
+                    assertEquals(picture.left + (screen.originX + screen.width) * picture.width / canvasWidth,
+                        sidePanelScreen.right, .001f)
+                    val atActiveLeft = picture.left + areas.areas[narrow].originX * picture.width / canvasWidth
+                    assertEquals((width - 1728).toFloat(), atActiveLeft, .001f)
+                    val event = MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN,
+                        atActiveLeft + 864f, 540f, 0)
+                    try {
+                        val contact = CarPlayTouchMapper.contacts(event, picture).single()
+                        val area = areas.areas[narrow]
+                        assertEquals((area.originX + (area.width - MzdVideoLayout.rightEdgeGuard(canvasWidth, area)) / 2.0) /
+                            canvasWidth, contact.x, .0001)
+                        assertEquals(.5, contact.y, .0001)
+                    } finally { event.recycle() }
+                }
+            }
+        }
+    }
+
+    @Test fun narrowStartupDeclaresTheRightAreaDespiteAFullSizeVideoSurface() {
+        ReflectionHelpers.setField(host, "airPlayIdentity", com.shilapi.xcertplay.airplay.AirPlayIdentity.generate())
+        val output = TextureView(host)
+        val canvas = MzdVideoCanvas(host).apply { addView(output, FrameLayout.LayoutParams(-1, -1)) }
+        canvas.measure(View.MeasureSpec.makeMeasureSpec(1728, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY))
+        canvas.layout(0, 0, 1728, 1080)
+        ReflectionHelpers.setField(host, "videoView", output)
+        val actual = ReflectionHelpers.callInstanceMethod<Any>(host, "currentActivitySize")
+        assertEquals(1728, ReflectionHelpers.getField<Int>(actual, "width"))
+        val sizeClass = Class.forName("com.shilapi.xcertplay.CarPlayHostActivity\$DisplaySize")
+        val full = sizeClass.getDeclaredConstructor(Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.newInstance(2496, 1080)
+        val config = host.javaClass.getDeclaredMethod("createAirPlayConfig", sizeClass)
+            .apply { isAccessible = true }.invoke(host, full) as com.shilapi.xcertplay.airplay.AirPlayConfig
+        val area = requireNotNull(config.main.viewAreas)[config.main.initialViewArea]
+        assertEquals(config.main.widthPixels - area.width, area.originX)
+        assertTrue(area.originX > 0)
+    }
+
+    @Test fun surfaceOutputRetainsItsSizeWhenTheActiveAreaAndItsEdgeGuardChange() {
+        val areas = MzdViewAreas.build(2496, 1080, CarPlayDock.AUTOMATIC, narrow = false)
+        install(2496, 1080, areas)
+        var sizes = 0
+        val surface = object : SurfaceView(host) {
+            override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+                super.onSizeChanged(w, h, oldw, oldh); sizes++
+            }
+        }
+        val output = FrameLayout(host).apply { addView(surface, FrameLayout.LayoutParams(-1, -1)) }
+        val canvas = MzdVideoCanvas(host).apply { addView(output, FrameLayout.LayoutParams(-1, -1)) }
+        ReflectionHelpers.setField(host, "videoView", output)
+        ReflectionHelpers.setField(host, "fallbackVideoView", surface)
+        for (width in listOf(2496, 1728, 2496, 1728)) {
+            areas.use(requireNotNull(areas.index(if (width == 1728) CarPlayViewAreas.Kind.SPLIT_SCREEN
+                else CarPlayViewAreas.Kind.FULL_SCREEN, null)))
+            repeat(2) {
+                canvas.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY))
+                canvas.layout(0, 0, width, 1080)
+                ReflectionHelpers.callInstanceMethod<Void>(host, "updateVideoLayout",
+                    ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType, 2496),
+                    ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType, 1080))
+            }
+            assertEquals(2496, surface.width)
+            assertEquals(1080, surface.height)
+            assertEquals("Area changes must not resize the SurfaceView, including its final frame", 1, sizes)
+            assertFalse(canvas.isLayoutRequested)
+        }
+    }
+
+    @Test @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun aLateBlurFromTheCancelledDirectionCannotReplaceTheCurrentPictureOrRequestLayout() {
+        val controller = mock(CarPlayController::class.java)
+        `when`(controller.showViewArea(anyInt())).thenReturn(true)
+        ReflectionHelpers.setField(host, "controller", controller)
+        ReflectionHelpers.setField(host, "sink", mock(AndroidMediaSink::class.java))
+        install(2496, 1080, MzdViewAreas.build(2496, 1080, CarPlayDock.AUTOMATIC, narrow = false))
+        val output = TextureView(host)
+        val root = FrameLayout(host).apply { addView(output, FrameLayout.LayoutParams(-1, -1)) }
+        ReflectionHelpers.setField(host, "videoView", output)
+        fun layout() {
+            root.measure(View.MeasureSpec.makeMeasureSpec(2496, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY))
+            root.layout(0, 0, 2496, 1080)
+        }
+        layout()
+        VideoPixels.deferCopies = true
+        VideoPixels.color = Color.RED
+        host.beginMazdaPanelTransition(1728)
+        VideoPixels.fraction = 1728f / 2496
+        VideoPixels.color = Color.BLUE
+        host.beginMazdaPanelTransition(2496)
+        val mask = ReflectionHelpers.getField<MzdTransitionMask>(
+            ReflectionHelpers.getField<MzdVideoCoordinator>(host, "mazdaVideo"), "mask")
+        layout()
+        assertEquals(2, VideoPixels.pending.size)
+        VideoPixels.pending[1]()
+        VideoPixels.pending[0]()
+        assertFalse("An asynchronous picture must not schedule a traversal near the endpoint", root.isLayoutRequested)
+        val picture = mask.view.drawable as android.graphics.drawable.BitmapDrawable
+        assertEquals(Color.BLUE, picture.bitmap.getPixel(32, picture.bitmap.height / 2))
+        mask.dispose()
+    }
+
     @Test fun rejectedWideAreaStaysMaskedAndTheSameSizeCanRetryWithoutReconnecting() {
         val controller = mock(CarPlayController::class.java)
         `when`(controller.showViewArea(anyInt())).thenReturn(false)
@@ -243,7 +390,7 @@ class MzdVideoTransitionTest {
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1900))
         assertEquals(CarPlayViewAreas.Kind.FULL_SCREEN, areas.kindOf(areas.current))
         val full = requireNotNull(areas.index(CarPlayViewAreas.Kind.FULL_SCREEN, null))
-        verify(controller, times(2)).showViewArea(full)
+        verify(controller, times(3)).showViewArea(full)
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(450))
         repeat(2) {
             mask.textureUpdated()
@@ -252,6 +399,251 @@ class MzdVideoTransitionTest {
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(250))
         assertFalse(mask.isShowing)
         assertEquals(0, ReflectionHelpers.getField<Int>(host, "restartGeneration"))
+    }
+
+    @Test fun bothEndpointsFinishUsingTheAreaRequestedBeforeTheFirstResizeWithoutAnother450msPause() {
+        AirPlayPersistence.saveAdaptPipResolution(host, true)
+        for ((from, to) in listOf(2496 to 1728, 1728 to 2496)) {
+            val controller = mock(CarPlayController::class.java)
+            `when`(controller.showViewArea(anyInt())).thenReturn(true)
+            ReflectionHelpers.setField(host, "controller", controller)
+            ReflectionHelpers.setField(host, "sink", mock(AndroidMediaSink::class.java))
+            val areas = MzdViewAreas.build(2496, 1080, CarPlayDock.AUTOMATIC, narrow = from == 1728)
+            ReflectionHelpers.setField(host, "sessionDisplay",
+                CarPlaySessionDisplay(2496, 1080, 0, false, false, from, 1080, areas))
+            val sizeClass = Class.forName("com.shilapi.xcertplay.CarPlayHostActivity\$DisplaySize")
+            ReflectionHelpers.setField(host, "activeDisplaySize",
+                sizeClass.getDeclaredConstructor(Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+                    .apply { isAccessible = true }.newInstance(from, 1080))
+            val output = TextureView(host)
+            val root = FrameLayout(host).apply { addView(output, FrameLayout.LayoutParams(-1, -1)) }
+            host.setContentView(root)
+            fun layout(width: Int) {
+                root.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY))
+                root.layout(0, 0, width, 1080)
+            }
+            layout(from)
+            ReflectionHelpers.setField(host, "videoView", output)
+            VideoPixels.copies = 0
+            VideoPixels.fraction = to / 2496f
+            host.beginMazdaPanelTransition(to)
+            val mask = ReflectionHelpers.getField<MzdTransitionMask>(
+                ReflectionHelpers.getField<MzdVideoCoordinator>(host, "mazdaVideo"), "mask")
+            val target = requireNotNull(areas.index(if (to == 1728) CarPlayViewAreas.Kind.SPLIT_SCREEN
+                else CarPlayViewAreas.Kind.FULL_SCREEN, null))
+            inOrder(controller).apply {
+                verify(controller).sendTouch(emptyList())
+                verify(controller).showViewArea(target)
+            }
+            assertEquals("Negotiation precedes any viewport resize", from, output.width)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(400))
+            mask.textureUpdated()
+            assertEquals("Only the blur snapshot may be copied before the endpoint", 1, VideoPixels.copies)
+            layout(to)
+            ReflectionHelpers.callInstanceMethod<Void>(host, "scheduleDisplaySize",
+                ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType, to),
+                ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType, 1080))
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(50))
+            repeat(2) {
+                mask.textureUpdated()
+                shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(16))
+            }
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200))
+            assertFalse("The endpoint must not add another 450 ms guard for $from -> $to", mask.isShowing)
+            assertEquals(3, VideoPixels.copies)
+            verifyNoMoreInteractions(controller)
+            assertEquals("Expanding a session started narrow must retain its connection", 0,
+                ReflectionHelpers.getField<Int>(host, "restartGeneration"))
+        }
+    }
+
+    @Test @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun fixedCanvasAndMovingCropNeverResizeVideoAtIntermediateOrFinalFrames() {
+        val controller = mock(CarPlayController::class.java)
+        `when`(controller.showViewArea(anyInt())).thenReturn(true)
+        ReflectionHelpers.setField(host, "controller", controller)
+        ReflectionHelpers.setField(host, "sink", mock(AndroidMediaSink::class.java))
+        val bitmap = Bitmap.createBitmap(2560, 1440, Bitmap.Config.ARGB_8888)
+        // Attach the real host views to a window without starting CarPlay's transport services.
+        val window = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+        try {
+            ShadowChoreographer.setPaused(true)
+            for ((from, to) in listOf(2496 to 1728, 1728 to 2496)) {
+                Settings.Global.putInt(host.contentResolver, "key_screen_show", if (from == 1728) 1 else 0)
+                val areas = MzdViewAreas.build(2496, 1080, CarPlayDock.AUTOMATIC, narrow = from == 1728)
+                install(2496, 1080, areas)
+                var sizes = 0
+                var measures = 0
+                var layouts = 0
+                val output = object : TextureView(host) {
+                    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+                        super.onSizeChanged(w, h, oldw, oldh)
+                        sizes++
+                    }
+                }
+                val canvas = MzdVideoCanvas(host).apply { addView(output, FrameLayout.LayoutParams(-1, -1)) }
+                val root = object : FrameLayout(host) {
+                    override fun onMeasure(w: Int, h: Int) { measures++; super.onMeasure(w, h) }
+                    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+                        layouts++; super.onLayout(changed, l, t, r, b)
+                    }
+                }.apply { clipChildren = false; addView(canvas, FrameLayout.LayoutParams(-1, -1)) }
+                val shell = MzdIntegration.wrap(host, root) as MzdCarAppLayout
+                window.setContentView(shell)
+                fun layout() {
+                    shell.measure(View.MeasureSpec.makeMeasureSpec(5120, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(1440, View.MeasureSpec.EXACTLY))
+                    shell.layout(0, 0, 5120, 1440)
+                    ReflectionHelpers.callInstanceMethod<Void>(
+                        ReflectionHelpers.callInstanceMethod<Any>(shell, "getViewRootImpl"), "unscheduleTraversals")
+                }
+                val attach = ReflectionHelpers.getField<Any>(shell, "mAttachInfo")
+                ReflectionHelpers.setField(attach, "mWindowVisibility", View.VISIBLE)
+                shell.dispatchWindowVisibilityChanged(View.VISIBLE)
+                layout()
+                assertEquals(from, root.width)
+                assertEquals(2496, output.width)
+                val initialSizes = sizes
+                ReflectionHelpers.setField(host, "videoView", output)
+                ReflectionHelpers.setField(shell, "vehiclePanel", to == 1728)
+                ReflectionHelpers.callInstanceMethod<Void>(shell, "movePanel")
+                val animator = requireNotNull(ReflectionHelpers.getField<ValueAnimator?>(shell, "panelAnimator"))
+                animator.pause()
+                layout()
+                assertEquals("Prepare responsive chrome before moving its crop", to, root.width)
+                assertEquals(2496, output.width)
+                assertEquals("Even the first frame must retain the video buffers", initialSizes, sizes)
+                val preparedSizes = sizes
+                val preparedMeasures = measures
+                val preparedLayouts = layouts
+                val integration = ReflectionHelpers.getField<MzdVideoCoordinator>(host, "mazdaVideo")
+                val mask = ReflectionHelpers.getField<MzdTransitionMask>(integration, "mask")
+                mask.view.setBackgroundColor(Color.CYAN) // Distinguish the moving panel from its swept strip.
+                val samples = listOf(0L to 64, 50L to 93, 100L to 176, 200L to 448,
+                    300L to 720, 350L to 803, 383L to 829, 400L to 832)
+                val origin = IntArray(2)
+                shell.getLocationOnScreen(origin)
+                for ((time, shrinkingLeft) in samples) {
+                    animator.currentPlayTime = time
+                    val expected = if (to == 1728) shrinkingLeft else 896 - shrinkingLeft
+                    val mapped = RectF(ReflectionHelpers.getField<android.graphics.Rect>(shell, "layoutBounds"))
+                    mapped.offset(origin[0].toFloat(), origin[1].toFloat())
+                    assertEquals("Physical edge at $time ms for $from -> $to", expected.toFloat(), mapped.left, 0.01f)
+                    assertEquals(2560f, mapped.right, 0.01f)
+                    assertEquals(192f, mapped.top, 0.01f)
+                    assertEquals(1272f, mapped.bottom, 0.01f)
+                    assertEquals("The video canvas stays at the same physical position", 64,
+                        root.left + canvas.left + output.left + origin[0])
+                    assertEquals(1f, root.scaleX, 0f)
+                    assertFalse("A layer frame must not request another host traversal", shell.isLayoutRequested)
+                    assertEquals(preparedMeasures, measures)
+                    assertEquals(preparedLayouts, layouts)
+                    assertEquals(preparedSizes, sizes)
+                    bitmap.eraseColor(Color.MAGENTA)
+                    shell.draw(Canvas(bitmap).apply { translate(origin[0].toFloat(), origin[1].toFloat()) })
+                    for (x in 80 until 2544 step 16) assertEquals("Coverage at $time ms, x=$x",
+                        if (x < expected) MzdTransitionMask.BACKGROUND_COLOR else Color.CYAN, bitmap.getPixel(x, 800))
+                    assertEquals(Color.MAGENTA, bitmap.getPixel(32, 800))
+                }
+                animator.end()
+                assertEquals(1f, root.scaleX, 0f)
+                assertEquals(preparedMeasures, measures)
+                assertEquals(preparedLayouts, layouts)
+                assertEquals(preparedSizes, sizes)
+                assertFalse(integration.isPanelMoving)
+            }
+            val output = ReflectionHelpers.getField<View>(host, "videoView")
+            val root = output.parent.parent as FrameLayout
+            val shell = root.parent as MzdCarAppLayout
+            fun layout() {
+                shell.measure(View.MeasureSpec.makeMeasureSpec(5120, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(1440, View.MeasureSpec.EXACTLY))
+                shell.layout(0, 0, 5120, 1440)
+                ReflectionHelpers.callInstanceMethod<Void>(
+                    ReflectionHelpers.callInstanceMethod<Any>(shell, "getViewRootImpl"), "unscheduleTraversals")
+            }
+            fun move(narrow: Boolean): ValueAnimator? {
+                ReflectionHelpers.setField(shell, "vehiclePanel", narrow)
+                ReflectionHelpers.callInstanceMethod<Void>(shell, "movePanel")
+                return ReflectionHelpers.getField<ValueAnimator?>(shell, "panelAnimator")?.apply { pause() }
+            }
+            fun edge(): Float {
+                return ReflectionHelpers.getField<android.graphics.Rect>(shell, "layoutBounds").left.toFloat()
+            }
+            val shrinking = requireNotNull(move(true))
+            layout()
+            shrinking.currentPlayTime = 200
+            val before = edge()
+            val reversed = requireNotNull(move(false))
+            layout()
+            assertEquals("A reversal keeps the displayed edge", before, edge(), 0.01f)
+            assertEquals(200L, reversed.duration)
+            reversed.end()
+            assertEquals(1f, root.scaleX, 0f)
+            requireNotNull(move(true)).currentPlayTime = 0
+            layout()
+            assertEquals(1728, root.width)
+            assertEquals(2496, output.width)
+            assertNull("Reversing before any movement needs no second animation", move(false))
+            layout()
+            assertEquals(2496, output.width)
+            assertEquals(1f, root.scaleX, 0f)
+            val integration = ReflectionHelpers.getField<MzdVideoCoordinator>(host, "mazdaVideo")
+            assertFalse(integration.isPanelMoving)
+            val mask = ReflectionHelpers.getField<MzdTransitionMask>(integration, "mask")
+            ReflectionHelpers.callInstanceMethod<Void>(host, "scheduleDisplaySize",
+                ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType, 2496),
+                ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType, 1080))
+            VideoPixels.fraction = 1f
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(450))
+            repeat(2) { mask.textureUpdated(); shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(16)) }
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200))
+            assertFalse("An immediate reversal must not leave the previous target's mask until recovery", mask.isShowing)
+        } finally {
+            bitmap.recycle()
+            window.finish()
+            MzdIntegration.closeWindows()
+            Settings.Global.putInt(host.contentResolver, "key_screen_show", 0)
+            ShadowChoreographer.setPaused(false)
+        }
+    }
+
+    @Test fun preparedTargetFramesCannotReleaseASlowMovingLayerAndTheOppositeEndCannotFinishIt() {
+        val controller = mock(CarPlayController::class.java)
+        `when`(controller.showViewArea(anyInt())).thenReturn(true)
+        ReflectionHelpers.setField(host, "controller", controller)
+        ReflectionHelpers.setField(host, "sink", mock(AndroidMediaSink::class.java))
+        install(2496, 1080, MzdViewAreas.build(2496, 1080, CarPlayDock.AUTOMATIC, narrow = false))
+        val output = TextureView(host)
+        val root = FrameLayout(host).apply { addView(output, FrameLayout.LayoutParams(-1, -1)) }
+        host.setContentView(root)
+        fun layout(width: Int) {
+            root.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY))
+            root.layout(0, 0, width, 1080)
+        }
+        layout(2496)
+        ReflectionHelpers.setField(host, "videoView", output)
+        host.beginMazdaPanelTransition(1728, deferUntilPanelEnd = true)
+        layout(1728)
+        val integration = ReflectionHelpers.getField<MzdVideoCoordinator>(host, "mazdaVideo")
+        val mask = ReflectionHelpers.getField<MzdTransitionMask>(integration, "mask")
+        ReflectionHelpers.callInstanceMethod<Void>(host, "scheduleDisplaySize",
+            ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType, 1728),
+            ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType, 1080))
+        VideoPixels.fraction = 1728f / 2496f
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(800))
+        host.endMazdaPanelTransition(2496)
+        repeat(2) { mask.textureUpdated(); shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(16)) }
+        assertTrue(integration.isPanelMoving)
+        assertEquals(1, VideoPixels.copies)
+        host.endMazdaPanelTransition(1728)
+        shadowOf(Looper.getMainLooper()).idle()
+        repeat(2) { mask.textureUpdated(); shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(16)) }
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200))
+        assertFalse(mask.isShowing)
+        assertEquals(3, VideoPixels.copies)
     }
 
     @Test @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -283,7 +675,7 @@ class MzdVideoTransitionTest {
         ReflectionHelpers.setField(host, "videoView", output)
         host.beginMazdaPanelTransition(2496)
         val mask = ReflectionHelpers.getField<MzdTransitionMask>(ReflectionHelpers.getField<MzdVideoCoordinator>(host, "mazdaVideo"), "mask")
-        assertEquals("Old snapshots must never be drawn into either transition layer", 0, VideoPixels.copies)
+        assertEquals("Request one small raw snapshot for the blurred fallback", 1, VideoPixels.copies)
         assertTrue(root.indexOfChild(parkedPicture) < root.indexOfChild(mask.view))
         assertTrue(root.indexOfChild(mask.view) < root.indexOfChild(touches))
         layout(2496)
@@ -324,6 +716,9 @@ class MzdVideoTransitionTest {
             var fraction = 1f
             var copies = 0
             var result = PixelCopy.SUCCESS
+            var color = Color.CYAN
+            var deferCopies = false
+            val pending = mutableListOf<() -> Unit>()
 
             @JvmStatic @Implementation
             fun request(source: Surface, bitmap: Bitmap, listener: PixelCopy.OnPixelCopyFinishedListener, handler: Handler) {
@@ -331,11 +726,12 @@ class MzdVideoTransitionTest {
                 assertTrue(source.isValid)
                 assertEquals(MzdTransitionFrame.CAPTURE_WIDTH, bitmap.width)
                 val pixels = IntArray(bitmap.width * bitmap.height) {
-                    if (it % bitmap.width < bitmap.width * fraction) Color.CYAN else Color.BLACK
+                    if (it % bitmap.width >= bitmap.width * (1 - fraction)) color else Color.BLACK
                 }
                 bitmap.setPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
                 val copied = result
-                handler.post { listener.onPixelCopyFinished(copied) }
+                if (deferCopies) pending += { listener.onPixelCopyFinished(copied) }
+                else handler.post { listener.onPixelCopyFinished(copied) }
             }
         }
     }
