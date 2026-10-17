@@ -650,6 +650,20 @@
     <string name="settings_gesture_fingers_hint">Pick a finger count your head unit does not already use. BYD takes three-finger swipe-down for its air-conditioning panel.</string>
     <string name="auto_car_hotspot_title">Automatically turn on the car hotspot</string>
     <string name="auto_car_hotspot_description">Starts the saved car hotspot when DiPlay opens. Turning this on automatically requests the required permissions through ADB; allow the prompt on the car screen. Enable “Open after the car starts” for boot startup. Keeps the hotspot name and password and never turns it off.</string>
+    <string name="settings_car_hotspot_config_title">Import the car hotspot details (experimental)</string>
+    <string name="settings_car_hotspot_config_description">Nothing to type: the car hotspot settings are imported; when the car has none, DiPlay writes its own details there after your confirmation, and devices using this hotspot may have to reconnect. Needs ADB on Android 11 and newer; not available on Android 8 to 10.</string>
+    <string name="settings_car_hotspot_config_unsupported">Importing the car hotspot details is not supported on this Android version.</string>
+    <string name="settings_car_hotspot_config_written">The car hotspot now uses the DiPlay password.</string>
+    <string name="settings_car_hotspot_config_imported">Imported the car hotspot settings.</string>
+    <string name="settings_car_hotspot_config_dialog_title">Overwrite the car hotspot settings?</string>
+    <string name="settings_car_hotspot_config_dialog_message">The car\'s saved hotspot configuration could not be read. Continuing overwrites it with the DiPlay hotspot details: the hotspot name may change, the password is replaced, and other connected devices have to re-enter the password.</string>
+    <string name="settings_car_hotspot_config_dialog_generate_message">Nothing could be read from the car and DiPlay has no hotspot details yet. Continuing creates a new hotspot name and password in the car; other devices have to enter the new password.</string>
+    <string name="settings_car_hotspot_config_dialog_save_message">DiPlay\'s hotspot password is written to the car\'s hotspot settings. Devices using this hotspot may have to re-enter the password.</string>
+    <string name="settings_car_hotspot_config_dialog_confirm">Overwrite and continue</string>
+    <string name="settings_car_hotspot_config_effect">Applied the next time the car hotspot starts</string>
+    <string name="settings_car_hotspot_config_failed">DiPlay could not write the car hotspot settings. The name and password stay unchanged.</string>
+    <string name="settings_car_hotspot_config_wpa3">A WPA3 hotspot is kept unchanged. Save the hotspot details with WPA2 to write them to the car.</string>
+    <string name="settings_car_hotspot_config_open">An open hotspot in DiPlay does not overwrite the car\'s password.</string>
     <string name="hotspot_control_missing">Hotspot control permission is missing. Set it up through ADB or open the hotspot in car settings.</string>
     <string name="hotspot_permission_granted">Permission granted.</string>
     <string name="hotspot_permission_failed">The requested permission was not granted. Check the car settings and try again.</string>
@@ -846,6 +860,9 @@
     <string name="settings_ambient_parked_notice">Configure while parked. Experimental support for selected BYD lamp interfaces; compatibility is not guaranteed for every model or firmware. Level 0 means the lowest OEM level, not power off.</string>
     <string name="settings_ambient_checking">Checking…</string>
     <string name="settings_ambient_unavailable">Read-only check failed: existing ADB authorization or a supported lamp interface is unavailable. No light settings were saved. Configure access separately while parked; this feature does not enable ADB or request authorization.</string>
+    <string name="settings_ambient_car_rhythm">Car\'s own music rhythm</string>
+    <string name="settings_ambient_car_rhythm_description">While CarPlay music plays, the car\'s own ambient-light music rhythm runs, with the colours and effects set in the car\'s ambient-light menu, where its music rhythm must be on. DiPlay does not set the lamps itself meanwhile. Checked when switched on. Needs the car\'s network ADB only where the head unit does not let DiPlay start the rhythm itself.</string>
+    <string name="settings_ambient_car_rhythm_unavailable">The car\'s music rhythm is not available: DiPlay cannot start it itself, and DiPlay\'s network ADB access or the head unit\'s audio service call is missing. Nothing was saved.</string>
     <string name="settings_interface_size">Interface size</string>
     <string name="settings_interface_size_auto">Automatic</string>
     <string name="settings_interface_size_hint">Size of text and controls on DiPlay\'s own screens. Automatic enlarges them on large screens with a low density. CarPlay is not affected.</string>
@@ -982,4 +999,11 @@
     <string name="black_corner_overlay_off">Off</string>
     <string name="black_corner_overlay_value">%1$d dp</string>
     <string name="iphone_corner_mask_mode">iPhone mask (experimental)</string>
+    <string name="settings_launcher_bubble">Home-screen bubble (experimental)</string>
+    <string name="settings_launcher_bubble_description">Shows the DiPlay icon as a bubble over the head unit\'s home screen: tap it to come back to CarPlay and drag it anywhere. It hides as soon as a DiPlay screen is open and comes back when you leave. Hold it to lock its place, hold it again to unlock. Needs \"display over other apps\".</string>
+    <string name="settings_launcher_bubble_size">Bubble size</string>
+    <string name="settings_launcher_bubble_locked">Place locked</string>
+    <string name="settings_launcher_bubble_unlocked">Place unlocked</string>
+    <string name="settings_launcher_bubble_hold_to_lock">Hold to lock</string>
+    <string name="settings_launcher_bubble_hold_to_unlock">Hold to unlock</string>
 </resources>

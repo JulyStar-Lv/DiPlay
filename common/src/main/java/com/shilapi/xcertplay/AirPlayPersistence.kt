@@ -90,6 +90,8 @@ object AirPlayPersistence {
     private const val KEY_CENTER_MAP_OVERLAY = "center_map_overlay"
     private const val KEY_CENTER_MAP_AUTO_HIDE = "center_map_auto_hide"
     private const val KEY_LAUNCHER_MAP_SHARING = "launcher_map_sharing"
+    private const val KEY_LAUNCHER_BUBBLE = "launcher_bubble"
+    private const val KEY_LAUNCHER_BUBBLE_SIZE = "launcher_bubble_size"
     private const val KEY_CLUSTER_MAP_SCALE = "cluster_map_scale_percent"
     private const val KEY_CLUSTER_CONTENT = "cluster_content"
     private const val KEY_CLUSTER_MARKER_X = "cluster_marker_horizontal_step"
@@ -864,6 +866,25 @@ object AirPlayPersistence {
 
     fun saveLauncherMapSharing(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_LAUNCHER_MAP_SHARING, enabled).apply()
+    }
+
+    /** A shortcut over the launcher's home screen that comes back to CarPlay (LauncherBubble). */
+    fun loadLauncherBubble(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_LAUNCHER_BUBBLE, false)
+
+    fun saveLauncherBubble(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_LAUNCHER_BUBBLE, enabled).apply()
+    }
+
+    /** Bubble height as a share of the screen height; the bubble width follows the icon's ratio. */
+    fun loadLauncherBubbleSize(context: Context): Int = LauncherBubbleLayout.snapSizePercent(
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getInt(KEY_LAUNCHER_BUBBLE_SIZE, LauncherBubbleLayout.DEFAULT_SIZE_PERCENT),
+    )
+
+    fun saveLauncherBubbleSize(context: Context, percent: Int) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putInt(KEY_LAUNCHER_BUBBLE_SIZE, LauncherBubbleLayout.snapSizePercent(percent)).apply()
     }
 
     fun loadClusterSpeedometerEnabled(context: Context): Boolean =

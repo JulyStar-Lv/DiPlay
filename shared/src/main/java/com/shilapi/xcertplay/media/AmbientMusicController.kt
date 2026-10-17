@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.shilapi.xcertplay.hud.BydAmbientLightClient
 import com.shilapi.xcertplay.hud.BydAmbientLightPolicy
+import com.shilapi.xcertplay.hud.BydCarMusicRhythm
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
@@ -61,12 +62,14 @@ object AmbientMusicController {
         },
     )
 
-    // The 20 Hz lamp update, scheduled only while the feature is on; turning it off restores the lamps by itself.
+    // The 20 Hz lamp update, scheduled only while the feature (or the car's own rhythm) is on; turning it off
+    // restores the lamps by itself.
     private var ticking: ScheduledFuture<*>? = null
 
     /** On the executor, after [settings] changed. */
     private fun updateTicking() {
-        if (!settings.enabled) {
+        if (!settings.carRhythm) context?.let { BydCarMusicRhythm.setPlaying(it, false) }
+        if (!settings.enabled && !settings.carRhythm) {
             ticking?.cancel(false)
             ticking = null
         } else if (ticking == null) {
@@ -214,6 +217,7 @@ object AmbientMusicController {
 
     private fun tick() {
         val values = settings
+        if (values.carRhythm) { carRhythm(); return }
         if (!allowed) return
         if (!values.enabled) { restoreOriginal(); return }
         if (context == null) return
@@ -252,4 +256,13 @@ object AmbientMusicController {
     }
 
     private fun restoreOriginal() { lampSession.setEnabled(false) }
+
+    // The car's own rhythm follows CarPlay music while it plays; DiPlay does not set the lamps meanwhile.
+    private fun carRhythm() {
+        restoreOriginal()
+        val app = context ?: return
+        val rendererActive = activeRenderer.get() != 0L && playback != null
+        val trackPlaying = if (rendererActive) playback?.invoke()?.second else null
+        BydCarMusicRhythm.setPlaying(app, carRhythmPlaying(rendererActive, trackPlaying, phonePlayback.current()))
+    }
 }

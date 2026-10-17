@@ -580,6 +580,20 @@
     <string name="settings_gesture_fingers_hint">Виберіть кількість пальців, яку не використовує головний пристрій. BYD резервує свайп трьома пальцями вниз під панель кондиціонера.</string>
     <string name="auto_car_hotspot_title">Автоматично вмикати точку доступу авто</string>
     <string name="auto_car_hotspot_description">Вмикає збережену точку доступу під час відкриття DiPlay. Перемикач автоматично запитує потрібні дозволи через ADB; підтвердьте запит на екрані авто. Для запуску після завантаження ввімкніть відкриття DiPlay після запуску авто. Назва й пароль зберігаються, точка доступу автоматично не вимикається.</string>
+    <string name="settings_car_hotspot_config_title">Імпорт даних точки доступу автомобіля (експериментально)</string>
+    <string name="settings_car_hotspot_config_description">Вводити дані точки доступу вручну не потрібно: дані автомобіля спочатку імпортуються. Якщо в автомобілі їх немає, після підтвердження туди записуються дані DiPlay, і пристроям, що використовують цю точку доступу, може знадобитися повторне підключення. На Android 11 і новіших потрібен ADB; на Android 8–10 недоступно.</string>
+    <string name="settings_car_hotspot_config_unsupported">Імпорт даних точки доступу автомобіля не підтримується в цій версії Android.</string>
+    <string name="settings_car_hotspot_config_written">Точка доступу автомобіля тепер використовує пароль DiPlay.</string>
+    <string name="settings_car_hotspot_config_imported">Налаштування точки доступу автомобіля імпортовано.</string>
+    <string name="settings_car_hotspot_config_dialog_title">Перезаписати налаштування точки доступу автомобіля?</string>
+    <string name="settings_car_hotspot_config_dialog_message">Не вдалося прочитати збережену в автомобілі конфігурацію точки доступу. Якщо продовжити, її буде перезаписано даними точки доступу DiPlay: назва точки доступу може змінитися, пароль буде замінено, а іншим підключеним пристроям доведеться ввести пароль знову.</string>
+    <string name="settings_car_hotspot_config_dialog_generate_message">Не вдалося прочитати налаштування точки доступу автомобіля, і в DiPlay ще немає збережених даних. Якщо продовжити, в автомобілі буде створено нову назву та пароль точки доступу; іншим пристроям доведеться ввести новий пароль.</string>
+    <string name="settings_car_hotspot_config_dialog_save_message">Пароль точки доступу DiPlay записується в налаштування точки доступу автомобіля. Пристроям, що використовують цю точку доступу, може знадобитися повторне введення пароля.</string>
+    <string name="settings_car_hotspot_config_dialog_confirm">Перезаписати та продовжити</string>
+    <string name="settings_car_hotspot_config_effect">Набуде чинності під час наступного ввімкнення точки доступу авто.</string>
+    <string name="settings_car_hotspot_config_failed">DiPlay не вдалося записати налаштування точки доступу автомобіля. Назва та пароль залишилися без змін.</string>
+    <string name="settings_car_hotspot_config_wpa3">Точку доступу WPA3 не змінено. Збережіть дані точки доступу з WPA2, щоб записати їх в автомобіль.</string>
+    <string name="settings_car_hotspot_config_open">Відкрита точка доступу DiPlay не перезаписує пароль автомобіля.</string>
     <string name="hotspot_control_missing">Немає дозволу керування точкою доступу. Надайте його через ADB або ввімкніть точку доступу в налаштуваннях авто.</string>
     <string name="hotspot_permission_granted">Дозвіл надано.</string>
     <string name="hotspot_permission_failed">Запитаний дозвіл не надано. Перевірте налаштування авто та спробуйте ще раз.</string>
@@ -826,6 +840,9 @@
     <string name="settings_ambient_parked_notice">Налаштовуйте на стоянці. Експериментальна підтримка деяких інтерфейсів BYD; сумісність залежить від моделі та прошивки. Рівень 0 означає мінімум OEM, а не вимкнення.</string>
     <string name="settings_ambient_checking">Перевірка…</string>
     <string name="settings_ambient_unavailable">Перевірку без запису не пройдено: немає наявної авторизації ADB або відповідного інтерфейсу. Налаштування не збережено. Налаштуйте доступ окремо на стоянці; функція не вмикає ADB і не запитує авторизацію.</string>
+    <string name="settings_ambient_car_rhythm">Штатний музичний ритм машини</string>
+    <string name="settings_ambient_car_rhythm_description">Поки грає музика CarPlay, працює штатний музичний ритм підсвічування машини з кольорами й ефектами з її меню підсвічування, де має бути ввімкнений «Музичний ритм». DiPlay тим часом сам лампи не змінює. Перевіряється під час увімкнення. Мережевий ADB машини потрібен, лише якщо головний пристрій не дає DiPlay увімкнути ритм самостійно.</string>
+    <string name="settings_ambient_car_rhythm_unavailable">Штатний музичний ритм недоступний: DiPlay не може ввімкнути його самостійно, а мережевого доступу ADB для DiPlay або потрібного виклику аудіосервісу головного пристрою немає. Нічого не збережено.</string>
     <string name="settings_disable_media_key_audio_focus">Вимкнути аудіофокус медіакнопок (експериментально)</string>
     <string name="settings_disable_media_key_audio_focus_description">Забороняє DiPlay запитувати аудіофокус мультимедіа під час відтворення музики CarPlay. Увімкніть, якщо головний пристрій спрямовує фізичні кнопки гучності до DiPlay і вони перестають регулювати гучність. Кнопки відтворення, паузи та зміни треку на кермі можуть не працювати на пристроях, яким потрібен аудіофокус. Застосовується під час наступного підключення CarPlay.</string>
     <string name="settings_ambient_album">Колір обкладинки альбому</string>
@@ -891,4 +908,11 @@
     <string name="black_corner_overlay_off">Вимк.</string>
     <string name="black_corner_overlay_value">%1$d dp</string>
     <string name="iphone_corner_mask_mode">Маска iPhone (експериментально)</string>
+    <string name="settings_launcher_bubble">Бульбашка на головному екрані (експериментально)</string>
+    <string name="settings_launcher_bubble_description">Показує значок DiPlay як бульбашку поверх головного екрана: торкніться, щоб повернутися до CarPlay, і перетягуйте її будь-куди. Вона ховається, коли відкрито DiPlay, і повертається після виходу. Утримуйте, щоб закріпити положення, і утримуйте знову, щоб зняти закріплення. Потрібен дозвіл «показ поверх інших програм».</string>
+    <string name="settings_launcher_bubble_size">Розмір бульбашки</string>
+    <string name="settings_launcher_bubble_locked">Положення закріплено</string>
+    <string name="settings_launcher_bubble_unlocked">Закріплення знято</string>
+    <string name="settings_launcher_bubble_hold_to_lock">Утримуйте: закріпити</string>
+    <string name="settings_launcher_bubble_hold_to_unlock">Утримуйте: зняти</string>
 </resources>
