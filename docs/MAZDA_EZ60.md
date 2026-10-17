@@ -86,6 +86,10 @@ from Settings. Existing saved preferences, including those retained when replaci
 are preserved. Clearing application data initializes the defaults again. Both classes live in
 `common/src/main/java/com/shilapi/xcertplay/mazda/`; other applications retain their defaults.
 
+Mazda also enables buffered music (experimental) when `main_buffered_audio` is absent,
+including upgrades initialized by older builds. Saved on/off choices are preserved. The
+existing setting still controls it, and the default applies at the next CarPlay connection.
+
 The Mazda application overrides `raw/ic_car_home.png` with the Mazda logo from the reference
 project. The original CarPlay icon loader uses this resource without modification; custom icons
 still take precedence. The OEM label reads the build's `config_oem_label` resource as its default:

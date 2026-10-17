@@ -38,6 +38,7 @@ class MzdDefaultsTest {
         assertEquals(4, AirPlayPersistence.loadSettingsGestureFingers(context))
         assertEquals(AppAppearance.AUTO, AirPlayPersistence.loadAppAppearance(context))
         assertTrue(AirPlayPersistence.loadMtkDecoderTuning(context))
+        assertTrue(AirPlayPersistence.loadMainBufferedAudio(context))
         assertEquals(AirPlayPersistence.DEFAULT_OEM_LABEL, AirPlayPersistence.loadOemLabel(context))
         assertTrue(SetupGuide.seen(context))
         assertFalse(SetupGuide.shouldOpenOnLaunch(SetupGuide.seen(context), phoneChosen = false))
@@ -52,6 +53,7 @@ class MzdDefaultsTest {
         assertEquals(AirPlayPersistence.DEFAULT_OEM_LABEL, AirPlayPersistence.loadOemLabel(context))
         assertTrue(SetupGuide.shouldOpenOnLaunch(SetupGuide.seen(context), phoneChosen = false))
         assertFalse(AirPlayPersistence.loadMtkDecoderTuning(context))
+        assertFalse(AirPlayPersistence.loadMainBufferedAudio(context))
 
         MzdDefaults.initialize(context)
 
@@ -88,6 +90,7 @@ class MzdDefaultsTest {
         AirPlayPersistence.saveAppAppearance(context, AppAppearance.DARK)
         AirPlayPersistence.saveOemLabel(context, "BYD")
         AirPlayPersistence.saveMtkDecoderTuning(context, false)
+        AirPlayPersistence.saveMainBufferedAudio(context, false)
 
         MzdDefaults.initialize(context)
 
@@ -98,6 +101,7 @@ class MzdDefaultsTest {
         assertEquals(AppAppearance.DARK, AirPlayPersistence.loadAppAppearance(context))
         assertEquals("BYD", AirPlayPersistence.loadOemLabel(context))
         assertFalse(AirPlayPersistence.loadMtkDecoderTuning(context))
+        assertFalse(AirPlayPersistence.loadMainBufferedAudio(context))
 
         clearPreferences()
         MzdDefaults.initialize(context)
@@ -136,14 +140,16 @@ class MzdDefaultsTest {
         }
     }
 
-    @Test fun previouslyInitializedMazdaGetsMissingMtkDefaultAndKeepsExplicitChoices() {
-        for (saved in listOf(null, false, true)) {
+    @Test fun previouslyInitializedMazdaGetsMissingDefaultsAndKeepsExplicitChoices() {
+        for (mtk in listOf(null, false, true)) for (bufferedMusic in listOf(null, false, true)) {
             clearPreferences()
             context.getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE).edit()
                 .putBoolean("mazda_defaults_initialized", true).commit()
-            if (saved != null) AirPlayPersistence.saveMtkDecoderTuning(context, saved)
+            if (mtk != null) AirPlayPersistence.saveMtkDecoderTuning(context, mtk)
+            if (bufferedMusic != null) AirPlayPersistence.saveMainBufferedAudio(context, bufferedMusic)
             MzdDefaults.initialize(context)
-            assertEquals(saved ?: true, AirPlayPersistence.loadMtkDecoderTuning(context))
+            assertEquals(mtk ?: true, AirPlayPersistence.loadMtkDecoderTuning(context))
+            assertEquals(bufferedMusic ?: true, AirPlayPersistence.loadMainBufferedAudio(context))
         }
     }
 }
@@ -161,6 +167,7 @@ class MzdApplicationTest {
         assertFalse(AirPlayPersistence.loadHideTopBar(application))
         assertFalse(AirPlayPersistence.loadHideBottomBar(application))
         assertTrue(AirPlayPersistence.loadMtkDecoderTuning(application))
+        assertTrue(AirPlayPersistence.loadMainBufferedAudio(application))
         assertTrue(SetupGuide.seen(application))
     }
 }
