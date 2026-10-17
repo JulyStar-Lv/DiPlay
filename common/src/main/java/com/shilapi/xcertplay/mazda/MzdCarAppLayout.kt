@@ -11,10 +11,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.database.ContentObserver
 import android.graphics.Color
-import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Paint
-import android.graphics.PorterDuff
 import android.graphics.Outline
 import android.graphics.Path
 import android.graphics.Rect
@@ -54,10 +51,9 @@ internal class MzdCarAppLayout(context: Context) : FrameLayout(context) {
     private val panelClip = Path()
     private val backdropBounds = Rect()
     private val backdropClip = Path()
-    private var transitionBackdrop: Bitmap? = null
-    private val backdropPaint = Paint(Paint.FILTER_BITMAP_FLAG)
+    private var coveringSweptArea = false
     private val clearBackdrop = Runnable {
-        transitionBackdrop = null
+        coveringSweptArea = false
         invalidate()
     }
     private val panelOutline = object : ViewOutlineProvider() {
@@ -183,12 +179,12 @@ internal class MzdCarAppLayout(context: Context) : FrameLayout(context) {
         panelAnimator?.cancel()
         panelAnimator = null
         val target = desiredPanelProgress()
-        val backdropSource = if (panelProgress != target) {
+        if (panelProgress != target) {
             // Keep CarPlay's mask ahead of the first resize, including immediate state changes.
             val targetLeft = if (passengerPanel) PASSENGER_PANEL_MARGIN_PX
                 else if (target == 1f) NARROW_PANEL_LEFT_PX else FULL_PANEL_LEFT_PX
             (context as? com.shilapi.xcertplay.CarPlayHostActivity)?.beginMazdaPanelTransition(PANEL_WIDTH_PX - targetLeft)
-        } else null
+        }
         if (!embedded || !isLaidOut || !isShown || windowVisibility != VISIBLE ||
             (Build.VERSION.SDK_INT >= 26 && !ValueAnimator.areAnimatorsEnabled())) {
             releaseBackdrop()
@@ -205,7 +201,7 @@ internal class MzdCarAppLayout(context: Context) : FrameLayout(context) {
         // synchronize their first frame: retain coverage of the swept area behind our moving edge.
         // The OEM sidebar is a higher-layer window, so it still draws and receives input above us.
         handler.removeCallbacks(clearBackdrop)
-        if (transitionBackdrop == null) captureBackdrop(backdropSource)
+        coveringSweptArea = true
         // Launcher AppList's applist_bg_scene.xml inherits 400 ms and interpolator 0 from
         // its bundled MotionScene. MotionLayout eases persistent linear 0..1 progress.
         // Continue that progress on reversal instead of easing a new pixel-distance segment:
@@ -289,13 +285,14 @@ internal class MzdCarAppLayout(context: Context) : FrameLayout(context) {
     }
 
     override fun dispatchDraw(canvas: Canvas) {
-        transitionBackdrop?.let { bitmap ->
-            if (embedded && !passengerPanel) {
-                val save = canvas.save()
-                canvas.clipPath(backdropClip)
-                canvas.drawBitmap(bitmap, null, backdropBounds, backdropPaint)
-                canvas.restoreToCount(save)
-            }
+        if (coveringSweptArea && embedded && !passengerPanel) {
+            val save = canvas.save()
+            canvas.clipPath(backdropClip)
+            // The independent OEM sidebar may lag. Cover only the exposed swept strip with a
+            // neutral colour, never a captured CarPlay dock or wallpaper outside its viewport.
+            canvas.clipRect(backdropBounds.left, backdropBounds.top, layoutBounds.left, backdropBounds.bottom)
+            canvas.drawColor(MzdTransitionMask.BACKGROUND_COLOR)
+            canvas.restoreToCount(save)
         }
         if (!embedded || canvas.isHardwareAccelerated) {
             super.dispatchDraw(canvas)
@@ -308,30 +305,9 @@ internal class MzdCarAppLayout(context: Context) : FrameLayout(context) {
         canvas.restoreToCount(save)
     }
 
-    private fun captureBackdrop(source: Bitmap?) {
-        val content = getChildAt(0) ?: return
-        if (passengerPanel || content.width <= 0 || content.height <= 0) return
-        // Deliberately low resolution: the exposed sliver should be a neutral, blurred continuation,
-        // rather than duplicate readable controls. No screenshot/overlay permissions are needed.
-        val bitmap = Bitmap.createBitmap(24,
-            (24 * content.height / content.width).coerceAtLeast(1), Bitmap.Config.ARGB_8888)
-        bitmap.eraseColor(Color.rgb(31, 54, 73))
-        val canvas = Canvas(bitmap)
-        if (source != null && !source.isRecycled) {
-            canvas.drawBitmap(source, null, Rect(0, 0, bitmap.width, bitmap.height), backdropPaint)
-        } else {
-            canvas.scale(bitmap.width.toFloat() / content.width, bitmap.height.toFloat() / content.height)
-            content.draw(canvas)
-        }
-        // SurfaceView punches a transparent hole when drawn into a software canvas. Flatten
-        // that hole after capture too; pre-filling the bitmap alone cannot keep it opaque.
-        canvas.drawColor(Color.rgb(31, 54, 73), PorterDuff.Mode.DST_OVER)
-        transitionBackdrop = bitmap
-    }
-
     private fun releaseBackdrop() {
         handler.removeCallbacks(clearBackdrop)
-        transitionBackdrop = null
+        coveringSweptArea = false
         invalidate()
     }
 

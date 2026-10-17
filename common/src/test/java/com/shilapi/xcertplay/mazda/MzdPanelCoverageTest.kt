@@ -5,7 +5,6 @@ import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.PorterDuff
 import android.os.Looper
 import android.provider.Settings
 import android.view.View
@@ -28,29 +27,6 @@ import org.robolectric.util.ReflectionHelpers
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class MzdPanelCoverageTest {
-    @Test fun aSurfaceViewStyleClearCannotLeaveTransparentPixelsInTheBackdrop() {
-        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
-        try {
-            val content = object : View(activity) {
-                override fun onDraw(canvas: Canvas) {
-                    // Model SurfaceView's software-canvas hole punch for its separate surface.
-                    canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
-                }
-            }
-            val shell = MzdCarAppLayout(activity).apply { setPanelContent(content) }
-            shell.measure(View.MeasureSpec.makeMeasureSpec(2560, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(1440, View.MeasureSpec.EXACTLY))
-            shell.layout(0, 0, 2560, 1440)
-            ReflectionHelpers.callInstanceMethod<Void>(shell, "captureBackdrop",
-                ReflectionHelpers.ClassParameter.from(Bitmap::class.java, null))
-            val snapshot = ReflectionHelpers.getField<Bitmap>(shell, "transitionBackdrop")
-            for (x in 0 until snapshot.width) for (y in 0 until snapshot.height) {
-                assertEquals("A cleared video surface must still occlude the background window",
-                    255, Color.alpha(snapshot.getPixel(x, y)))
-            }
-        } finally { activity.finish() }
-    }
-
     @Test fun delayedUnderlyingWindowCannotShowThroughEitherDirectionOrAReversal() {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
         val content = View(activity).apply { setBackgroundColor(Color.CYAN) }
@@ -82,7 +58,10 @@ class MzdPanelCoverageTest {
         }
         fun covered() {
             bitmap().let {
-                for (x in 80 until 2544 step 16) assertEquals("Opaque at physical x=$x", Color.CYAN, it.getPixel(x, 800))
+                val position = IntArray(2)
+                content.getLocationOnScreen(position)
+                for (x in 80 until 2544 step 16) assertEquals("Opaque without copied CarPlay at physical x=$x",
+                    if (x < position[0]) MzdTransitionMask.BACKGROUND_COLOR else Color.CYAN, it.getPixel(x, 800))
                 for ((x, y) in listOf(32 to 800, 80 to 170, 80 to 1290, 1000 to 1350)) {
                     assertEquals("Leave OEM chrome/margins transparent ($x,$y)", Color.MAGENTA, it.getPixel(x, y))
                 }
@@ -103,13 +82,13 @@ class MzdPanelCoverageTest {
                 if (time == 200L) {
                     // Negative control: the same geometry without the backdrop reproduces
                     // the exposed AppList. Checking edge coordinates alone misses this bug.
-                    val snapshot = ReflectionHelpers.getField<Bitmap>(shell, "transitionBackdrop")
-                    ReflectionHelpers.setField(shell, "transitionBackdrop", null)
+                    val coverage = ReflectionHelpers.getField<Boolean>(shell, "coveringSweptArea")
+                    ReflectionHelpers.setField(shell, "coveringSweptArea", false)
                     bitmap().let {
                         assertEquals(Color.MAGENTA, it.getPixel(100, 800))
                         it.recycle()
                     }
-                    ReflectionHelpers.setField(shell, "transitionBackdrop", snapshot)
+                    ReflectionHelpers.setField(shell, "coveringSweptArea", coverage)
                 }
             }
             shrinking.end()
@@ -131,24 +110,23 @@ class MzdPanelCoverageTest {
                 layout()
                 covered()
             }
-            val snapshot = ReflectionHelpers.getField<Bitmap>(shell, "transitionBackdrop")
             val reversing = transition(true)
             reversing.currentPlayTime = 50
             layout()
-            assertSame("Reversal must retain the original picture", snapshot,
-                ReflectionHelpers.getField<Bitmap>(shell, "transitionBackdrop"))
+            assertTrue("Reversal must retain neutral coverage",
+                ReflectionHelpers.getField<Boolean>(shell, "coveringSweptArea"))
             covered()
             shell.dispatchWindowVisibilityChanged(View.GONE)
-            assertNull(ReflectionHelpers.getField<Bitmap?>(shell, "transitionBackdrop"))
+            assertFalse(ReflectionHelpers.getField<Boolean>(shell, "coveringSweptArea"))
             assertFalse(reversing.isRunning)
             shell.dispatchWindowVisibilityChanged(View.VISIBLE)
             layout()
             transition(true).currentPlayTime = 0
-            assertNotNull(ReflectionHelpers.getField<Bitmap?>(shell, "transitionBackdrop"))
+            assertTrue(ReflectionHelpers.getField<Boolean>(shell, "coveringSweptArea"))
             ReflectionHelpers.setField(shell, "vehiclePanel", false)
             ReflectionHelpers.callInstanceMethod<Void>(shell, "movePanel")
-            assertNull("Reversal before the first frame must release the snapshot too",
-                ReflectionHelpers.getField<Bitmap?>(shell, "transitionBackdrop"))
+            assertFalse("Reversal before the first frame must release neutral coverage too",
+                ReflectionHelpers.getField<Boolean>(shell, "coveringSweptArea"))
             assertNull(ReflectionHelpers.getField<ValueAnimator?>(shell, "panelAnimator"))
         } finally {
             activity.finish()
@@ -177,9 +155,9 @@ class MzdPanelCoverageTest {
             val root = ReflectionHelpers.callInstanceMethod<Any>(shell, "getViewRootImpl")
             ReflectionHelpers.callInstanceMethod<Void>(root, "unscheduleTraversals")
             shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(799))
-            assertNotNull(ReflectionHelpers.getField<Bitmap?>(shell, "transitionBackdrop"))
+            assertTrue(ReflectionHelpers.getField<Boolean>(shell, "coveringSweptArea"))
             activity.setContentView(View(activity))
-            assertNull(ReflectionHelpers.getField<Bitmap?>(shell, "transitionBackdrop"))
+            assertFalse(ReflectionHelpers.getField<Boolean>(shell, "coveringSweptArea"))
         } finally {
             Settings.Global.putFloat(activity.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
             activity.finish()

@@ -1,4 +1,6 @@
-package com.shilapi.xcertplay
+package com.shilapi.xcertplay.mazda
+
+import com.shilapi.xcertplay.*
 
 import android.content.Context
 import android.content.Intent
@@ -33,8 +35,8 @@ import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "zh-rCN-w5120dp-h1440dp-mdpi",
-    shadows = [WifiDirectConnectTest.HeadUnitResources::class])
-class WifiDirectConnectTest {
+    shadows = [MzdWifiDirectConnectTest.HeadUnitResources::class])
+class MzdWifiDirectConnectTest {
     private val context: Context get() = RuntimeEnvironment.getApplication()
     private var home: DiPlayActivity? = null
 
@@ -134,15 +136,15 @@ class WifiDirectConnectTest {
         }
     }
 
-    @Test fun otherBuildsUseTheStandardToastAndAlsoStopBeforeConnecting() {
+    @Test fun otherBuildsRetainTheUpstreamConnectionEntryWithoutAMazdaHint() {
         HeadUnitResources.mazda = false
         choosePhone()
         val activity = openHome()
         connect(activity)
         assertNull(ReflectionHelpers.getField<MzdHomeView?>(activity, "mazdaHomeView"))
-        assertEquals(activity.getString(R.string.turn_on_wi_fi_in_the_head_unit_s_settings_to_connect),
-            ShadowToast.getTextOfLatestToast())
-        assertNull(shadowOf(activity).nextStartedActivity)
+        assertEquals(0, ShadowToast.shownToastCount())
+        assertEquals(CarPlayHostActivity::class.java.name,
+            requireNotNull(shadowOf(activity).nextStartedActivity).component!!.className)
     }
 
     @Implements(Resources::class)

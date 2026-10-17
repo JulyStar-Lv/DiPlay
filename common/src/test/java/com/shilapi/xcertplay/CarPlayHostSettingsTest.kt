@@ -18,6 +18,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.FrameLayout
 import com.shilapi.xcertplay.mazda.MzdTransitionMask
+import com.shilapi.xcertplay.mazda.MzdVideoCoordinator
 import com.shilapi.xcertplay.airplay.*
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.orchestration.*
@@ -105,8 +106,11 @@ class CarPlayHostSettingsTest {
         setField("gestureFingerCount", 3)
         val output = field("videoView") as View
         val mask = MzdTransitionMask(output.parent as FrameLayout, output, field("mainHandler") as Handler,
-            capture = { it(null) }, requestPicture = {}, renderedFrames = { 0 }, textureOutput = true)
-        setField("mazdaTransitionMask", mask)
+            checkFrame = { it(false) }, requestPicture = {}, renderedFrames = { 0 }, textureOutput = true)
+        val integration = MzdVideoCoordinator(activity, field("mainHandler") as Handler,
+            state = { null }, retryLayout = { _, _ -> })
+        org.robolectric.util.ReflectionHelpers.setField(integration, "mask", mask)
+        setField("mazdaVideo", integration)
         try {
             mask.begin(2496)
             touch(MotionEvent.ACTION_DOWN, 1, 100f)
@@ -118,7 +122,7 @@ class CarPlayHostSettingsTest {
             assertTrue(mask.isShowing)
         } finally {
             mask.dispose()
-            setField("mazdaTransitionMask", null)
+            setField("mazdaVideo", null)
         }
     }
 

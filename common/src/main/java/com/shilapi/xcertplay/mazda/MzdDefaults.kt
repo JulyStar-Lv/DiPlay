@@ -18,7 +18,7 @@ internal object MzdDefaults {
         if (!preferences.contains("hide_top_bar")) AirPlayPersistence.saveHideTopBar(context, false)
         if (!preferences.contains("hide_bottom_bar")) AirPlayPersistence.saveHideBottomBar(context, false)
         if (!preferences.contains("display_fps")) AirPlayPersistence.saveFps(context, 60)
-        if (!preferences.contains("settings_gesture_fingers")) AirPlayPersistence.saveSettingsGestureFingers(context, 2)
+        if (!preferences.contains("settings_gesture_fingers")) AirPlayPersistence.saveSettingsGestureFingers(context, 4)
         if (!preferences.contains("app_appearance")) AirPlayPersistence.saveAppAppearance(context, AppAppearance.AUTO)
 
         SetupGuide.markSeen(context)

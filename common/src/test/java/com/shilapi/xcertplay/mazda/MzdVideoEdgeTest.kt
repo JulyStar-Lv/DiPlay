@@ -63,13 +63,6 @@ class MzdVideoEdgeTest {
                         }
                     } finally { rendered.recycle() }
                 }
-                val snapshot = MzdTransitionPicture.crop(source, canvasWidth, canvasHeight, area)
-                try {
-                    for (x in 0 until snapshot.width) {
-                        assertEquals("The transition must use the same wallpaper-free area", picture,
-                            snapshot.getPixel(x, snapshot.height / 2))
-                    }
-                } finally { snapshot.recycle() }
             } finally { source.recycle() }
         }
     }

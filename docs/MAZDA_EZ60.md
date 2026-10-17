@@ -80,7 +80,7 @@ teardown still completes asynchronously before Home re-enables device selection.
 
 The Mazda manifest alone registers `MzdApplication`. Before Activities or services start,
 `MzdDefaults` initializes missing preferences once: hide status/navigation bars off, 60 FPS,
-two-finger settings gesture and automatic application appearance. It marks the existing setup
+four-finger swipe-down settings gesture and automatic application appearance. It marks the existing setup
 guide as seen, so the original launch logic opens the home page; the guide remains available
 from Settings. Existing saved preferences, including those retained when replacing `:mobile`,
 are preserved. Clearing application data initializes the defaults again. Both classes live in
@@ -105,11 +105,12 @@ linear 0..1 progress and applies easing to that progress before positioning the 
 mid-transition retraces the same curve for the remaining progress; it does not start a new
 easing curve timed from an already-eased pixel distance. Top, bottom and right edges stay fixed.
 Equal timing alone cannot synchronize separate foreground, AppList and sidebar windows.
-During visible motion an opaque, blurred backdrop retains full application-panel coverage;
-it is removed one animation-scaled transition interval after the foreground settles. This
-prevents the moving edge from exposing a lagging AppList. The backdrop stays inside the
-application bounds and below the OEM sidebar window; hiding/detaching or switching task area
-clears it. It reuses the active CarPlay mask picture instead of software-capturing TextureView.
+During visible motion an opaque neutral colour covers the exposed strip between the full
+panel's left edge and its moving left edge; it is removed one animation-scaled transition
+interval after the foreground settles. This prevents the moving edge from exposing a lagging
+AppList without drawing old CarPlay controls outside the video viewport. Coverage stays inside
+the application bounds and below the OEM sidebar window; hiding/detaching or switching task
+area clears it. No CarPlay screenshot is captured or drawn for this backdrop.
 Opening directly
 in either shape places the panel immediately; reversing a transition starts at its current edge.
 The reference is Launcher AppList's `applist_bg_scene.xml` (full_screen/half_left),
@@ -122,20 +123,22 @@ During that transition the current CarPlay view area uniformly covers the panel,
 overflow rather than shrinking the old wide frame into top/bottom black bars. Video and touch
 use the same transform. At either exact OEM endpoint, the host requests the matching view
 area immediately, without the normal 500 ms resize debounce; intermediate sizes still debounce.
-A blurred, opaque mask fills only the CarPlay viewport from the first sidebar signal, before
+A solid, opaque mask fills only the CarPlay viewport from the first sidebar signal, before
 the first animated resize. It remains across the entire window animation and rapid reversals.
 After the endpoint's area command, it waits 450 ms for the iPhone's 300 ms animation and then
-requests a fresh picture. A subsequent texture presentation (or a new rendered SurfaceView
-frame) fades the mask out over 150 ms. Bounded timeouts prevent a stalled frame or missing
-endpoint from leaving the mask stuck. CarPlay touches are paused while it is visible; the OEM
-instrument panel and bottom controls remain outside the mask. The snapshot crops the active
-stream area before downsampling, excluding the unused right strip of a narrow CarPlay frame.
-The complete picture stretches to each animated viewport size, with a tiny filtered blur image
-above it. Both layers fill the window without a RenderEffect layer retaining the old width.
+requests a fresh picture. Each new texture presentation (or rendered SurfaceView frame) allows
+an asynchronous PixelCopy of the decoder Surface's raw canvas, before the view transform crops
+it. Two successive checks must match the settled view area's active picture and unused black
+padding before the mask fades out over 150 ms. An old frame, failed copy or ambiguous entirely
+black picture keeps the mask visible during the normal guard; timeouts retry the layout and
+request a fresh picture. An eight-second maximum guard restores video and touch if the pixel
+heuristic never succeeds. This pixel heuristic checks geometry, not an iPhone
+acknowledgement of the area command. CarPlay touches are paused while the mask is visible;
+the quick-menu gesture, OEM instrument panel and bottom controls remain available.
 A two-stream-pixel guard remains for the full area. The narrow area excludes twelve source
 pixels at 1080-high resolution (six at 540), covering its measured coloured edge plus filtering
-margin in both live video and snapshots. Live video retains uniform scale and the same touch
-transform; only the temporary masked picture stretches. Missing snapshots use an opaque colour gradient.
+margin in live video and the target-area pixel check. Live video retains uniform scale and
+the same touch transform. Transition coverage contains no stretched or blurred old picture.
 The pixel regression fixture puts a narrow picture and a black right strip in one encoded
 canvas, then renders every animated width. Large-font compact/full mask fixtures are generated
 under `common/build/reports/mazda-ui/`; these are synthetic renderer checks, not screenshots
@@ -162,7 +165,27 @@ with the existing renderer and touch coordinate mapping; they do not require rec
 Dock and resolution scaling are preserved. Screen rotation's square canvas is excluded for
 this fixed OEM panel; ordinary mobile builds retain the current rotation behavior.
 
-## System hotspot
+## Mazda source boundaries (2026-10-17)
+
+The supplied green CarPlay artwork is an application resource override in
+`mazda/src/main/res/drawable/ic_carplay.xml`. The common module retains upstream's PNG,
+so mobile and other applications keep their original icons. The launcher wrappers remain
+in the Mazda application module.
+
+`MzdHomeView` owns the combined phone-selection/disconnect action and reads the live session
+on every click. The common home retains upstream's separate selection and disconnect buttons.
+`MzdConnectionPreflight` limits the immediate Wi-Fi Direct warning to Mazda; other builds
+retain upstream's connection entry behavior.
+
+`MzdVideoCoordinator` owns transition-mask scheduling, raw decoder-frame inspection and
+return-picture capture. The host only supplies current video state and lifecycle/resize hooks.
+Normally two verified target presentations release the mask. An eight-second maximum guard
+requests layout/picture recovery and fades the mask even when a valid dark picture or failed
+pixel copy cannot pass the heuristic. This preserves access to CarPlay touch and settings
+without stopping or reconnecting a session. A persistent underlying video failure can remain
+visible after this recovery and still requires diagnosis; the guard is not a video-frame acknowledgement.
+
+## System hotspot behavior
 
 Mazda uses the upstream hotspot flow, aligned with upstream `main` at `1b1ac5f2`.
 There is no Mazda preparation worker, system-credential injection, forced 5 GHz configuration,

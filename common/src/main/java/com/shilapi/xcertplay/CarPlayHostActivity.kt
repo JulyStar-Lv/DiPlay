@@ -5,8 +5,7 @@ import com.shilapi.xcertplay.mazda.MzdCarAppLayout
 import com.shilapi.xcertplay.mazda.MzdConnectionView
 import com.shilapi.xcertplay.mazda.MzdViewAreas
 import com.shilapi.xcertplay.mazda.MzdVideoLayout
-import com.shilapi.xcertplay.mazda.MzdTransitionPicture
-import com.shilapi.xcertplay.mazda.MzdTransitionMask
+import com.shilapi.xcertplay.mazda.MzdVideoCoordinator
 import android.app.AlertDialog
 import android.Manifest
 import android.content.ActivityNotFoundException
@@ -358,7 +357,7 @@ class CarPlayHostActivity : ComponentActivity() {
     }
     private var fallbackVideoView: SurfaceView? = null
     private var fallbackVideoBounds: CarPlaySurfaceBounds? = null
-    private var mazdaTransitionMask: MzdTransitionMask? = null
+    private var mazdaVideo: MzdVideoCoordinator? = null
     // The last picture of a SurfaceView video output, kept when its surface goes (DiPlay leaves the screen) and
     // shown over the new surface until a new frame is rendered there: a still CarPlay screen sends no frame, so
     // the new surface would otherwise stay black until the next change (a touch).
@@ -707,7 +706,7 @@ class CarPlayHostActivity : ComponentActivity() {
         val size = pendingDisplaySize ?: return@Runnable
         pendingDisplaySize = null
         applyDisplaySize(size)
-        settleMazdaTransition(size)
+        mazdaVideo?.settle(size.width, size.height)
     }
 
     private val textureListener = object : TextureView.SurfaceTextureListener {
@@ -748,7 +747,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
         override fun onSurfaceTextureUpdated(texture: SurfaceTexture) {
             if (currentSurfaceTexture === texture && pictureHoldAwaitTexture) hideLastPicture()
-            if (currentSurfaceTexture === texture) mazdaTransitionMask?.textureUpdated()
+            if (currentSurfaceTexture === texture) mazdaVideo?.textureUpdated()
         }
     }
 
@@ -5666,9 +5665,9 @@ class CarPlayHostActivity : ComponentActivity() {
         val size = DisplaySize(width, height)
         if (size == pendingDisplaySize) return
         mainHandler.removeCallbacks(applyDisplaySize)
-        if (size == activeDisplaySize && !displayLayoutChanged() && mazdaAreaMatches(size)) {
+        if (size == activeDisplaySize && !displayLayoutChanged() && (mazdaVideo?.areaMatches(size.width, size.height) != false)) {
             pendingDisplaySize = null
-            settleMazdaTransition(size)
+            mazdaVideo?.settle(size.width, size.height)
             // A rotation back can cancel the last pending resize after teardown has finished.
             maybeStartCarPlay()
             return
@@ -5686,24 +5685,6 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun isMultiWindowActive(): Boolean {
         return Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInMultiWindowMode
     }
-
-    // A rejected view-area command can leave the window at its endpoint with the old area.
-    // Do not release the transition mask (or skip a retry) merely because the size matches.
-    private fun mazdaAreaMatches(size: DisplaySize): Boolean {
-        if (mazdaTransitionMask?.isShowing != true || !MzdIntegration.cockpit(this) ||
-            !MzdVideoLayout.isSettledPanel(size.width, size.height)) return true
-        val areas = sessionDisplay?.viewAreas ?: return false
-        val kind = if (MzdViewAreas.isNarrow(size.width, size.height)) CarPlayViewAreas.Kind.SPLIT_SCREEN
-            else CarPlayViewAreas.Kind.FULL_SCREEN
-        return areas.kindOf(areas.current) == kind
-    }
-
-    private fun settleMazdaTransition(size: DisplaySize) {
-        if (MzdVideoLayout.isSettledPanel(size.width, size.height) && mazdaAreaMatches(size)) {
-            mazdaTransitionMask?.settle(size.width)
-        }
-    }
-
 
     private fun statusBarShown(): Boolean? =
         ViewCompat.getRootWindowInsets(window.decorView)?.isVisible(WindowInsetsCompat.Type.statusBars())
@@ -6404,84 +6385,38 @@ class CarPlayHostActivity : ComponentActivity() {
         }.start()
     }
 
-    /** Called on the first OEM sidebar signal, before its panel starts changing width. */
-    internal fun beginMazdaPanelTransition(targetWidth: Int): Bitmap? {
-        if (!MzdIntegration.cockpit(this) || sessionDisplay == null || sink == null ||
-            shuttingDown.get() || isFinishing || connectionPanel?.visibility == View.VISIBLE) return null
-        val output = videoView ?: return null
-        val parent = output.parent as? FrameLayout ?: return null
-        // A reversal supersedes a queued endpoint from the previous animation.
+    private fun mazdaVideoIntegration(): MzdVideoCoordinator? {
+        if (!MzdIntegration.enabled(this)) return null
+        return mazdaVideo ?: MzdVideoCoordinator(this, mainHandler, state = {
+            val output = videoView
+            val live = sink
+            if (output == null || live == null) null else
+                MzdVideoCoordinator.State(output, currentSurface, sessionDisplay, live, pictureHold)
+        }, retryLayout = ::scheduleDisplaySize).also { mazdaVideo = it }
+    }
+
+    /** Called before the OEM sidebar changes the viewport. */
+    internal fun beginMazdaPanelTransition(targetWidth: Int) {
+        if (shuttingDown.get() || isFinishing || connectionPanel?.visibility == View.VISIBLE ||
+            mazdaVideoIntegration()?.begin(targetWidth) != true) return
         mainHandler.removeCallbacks(applyDisplaySize)
         pendingDisplaySize = null
-        val mask = mazdaTransitionMask?.takeIf { it.view.parent === parent } ?: run {
-            mazdaTransitionMask?.dispose()
-            // A sidebar switch can start while the return picture is still covering the video.
-            val coveredView = pictureHold?.takeIf { it.parent === parent } ?: output
-            MzdTransitionMask(parent, coveredView, mainHandler, capture = { copied ->
-                val display = sessionDisplay
-                val area = display?.viewAreas?.let { it.layoutArea(it.current) }
-                val width = minOf(display?.width ?: output.width, MzdTransitionPicture.CAPTURE_WIDTH).coerceAtLeast(1)
-                val height = (width * (display?.height ?: output.height) /
-                    (display?.width ?: output.width).coerceAtLeast(1)).coerceAtLeast(1)
-                fun deliver(stream: Bitmap?) {
-                    copied(stream?.takeUnless { it.isRecycled }?.let {
-                        if (display != null && area != null) {
-                            MzdTransitionPicture.crop(it, display.width, display.height, area)
-                        } else it
-                    })
-                }
-                val texture = output as? TextureView
-                val surface = fallbackVideoView
-                when {
-                    texture?.isAvailable == true -> deliver(runCatching { texture.getBitmap(width, height) }.getOrNull())
-                    surface?.holder?.surface?.isValid == true -> {
-                        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                        // Copy asynchronously; the opaque fallback is visible immediately, even
-                        // when the compositor cannot supply a snapshot before the first resize.
-                        if (runCatching {
-                            PixelCopy.request(surface, bitmap, { result ->
-                                deliver(if (result == PixelCopy.SUCCESS) bitmap else null)
-                            }, mainHandler)
-                        }.isFailure) copied(null)
-                    }
-                    else -> deliver(lastPicture)
-                }
-            }, requestPicture = { sink?.refreshPicture(SCREEN_TYPE_MAIN) },
-                renderedFrames = { sink?.liveVideoCounters()?.rendered ?: -1L },
-                textureOutput = output is TextureView,
-                retryLayout = { scheduleDisplaySize(output.width, output.height) }).also { mazdaTransitionMask = it }
-        }
         gestureSequenceActive = false
         gestureTracking = false
         controller?.sendTouch(emptyList())
-        mask.begin(targetWidth)
-        // The shell only downsamples this borrowed active-area picture. Drawing a TextureView
-        // into its software snapshot would otherwise leave a black strip behind the moving edge.
-        return mask.snapshot
     }
 
-    /** Keep one bounded, in-memory picture before the OEM closes this window's video surface. */
     internal fun keepMazdaReturnPicture() {
-        val live = sink ?: return
-        if (!MzdIntegration.enabled(this) || !CarPlayBackgroundSession.active ||
-            !CarPlayBackgroundSession.isOwner(this)) return
-        val picture = if (pictureHold?.visibility == View.VISIBLE) lastPicture else {
-            val texture = videoView as? TextureView
-            if (texture != null && texture.isAvailable && texture.width > 0 && texture.height > 0) {
-                runCatching { texture.getBitmap((texture.width / 2).coerceAtLeast(1),
-                    (texture.height / 2).coerceAtLeast(1)) }.getOrNull()
-            } else {
-                captureLastPicture()
-                lastPicture
-            }
+        mazdaVideoIntegration()?.keepReturnPicture(lastPicture, pictureHold?.visibility == View.VISIBLE) {
+            captureLastPicture()
+            lastPicture
         }
-        picture?.let { CarPlayBackgroundSession.keepReturnPicture(this, live, it) }
     }
 
     // Forgets the last picture with its session, and stops showing or asking for one.
     private fun discardLastPicture() {
-        mazdaTransitionMask?.dispose()
-        mazdaTransitionMask = null
+        mazdaVideo?.dispose()
+        mazdaVideo = null
         mainHandler.removeCallbacks(pictureHoldTick)
         mainHandler.removeCallbacks(pictureRetry)
         pictureHold?.let { hold ->
@@ -6562,7 +6497,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
         // Keep DiPlay's recovery/settings gesture available if the video stalls behind the mask.
         // Only CarPlay contacts are blocked while the displayed picture and coordinates differ.
-        if (mazdaTransitionMask?.isShowing == true) return true
+        if (mazdaVideo?.isTransitionShowing == true) return true
 
         val content = contentRect(view.width, view.height)
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {

@@ -5,6 +5,7 @@ package com.shilapi.xcertplay
 import com.shilapi.xcertplay.mazda.MzdIntegration
 import com.shilapi.xcertplay.mazda.MzdCarAppLayout
 import com.shilapi.xcertplay.mazda.MzdHomeView
+import com.shilapi.xcertplay.mazda.MzdConnectionPreflight
 import android.Manifest
 import android.app.AlertDialog
 import android.app.Dialog
@@ -28,7 +29,6 @@ import android.media.AudioFormat
 import android.media.AudioTrack
 import android.media.MediaFormat
 import android.net.Uri
-import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -200,7 +200,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private var homeConnectionHint: TextView? = null
     private var connectButton: Button? = null
     private var mazdaHomeView: MzdHomeView? = null
-    private var phoneSessionButton: Button? = null
+    private var disconnectButton: Button? = null
     private var lastRunning: Boolean? = null
     private var pendingWireless = false
     private var bluetoothSettingsVisited = false
@@ -685,7 +685,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             (settingsSearchExpanded && settingsSearchBox?.hasFocus() == true)
         settingsSearchBox = null
         if (page != "settings") clearSettingsSearchState()
-        status = null; connectButton = null; phoneSessionButton = null; lastRunning = null; carButtonCard = null
+        status = null; connectButton = null; disconnectButton = null; lastRunning = null; carButtonCard = null
         mazdaHomeView = null
         reconnectBar = null
         readinessCard = null
@@ -706,13 +706,13 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             MzdHomeView(this, appNight, { MzdIntegration.exitApp(this) },
                 settings = { page = "settings"; render() },
                 connect = { if (CarPlayBackgroundSession.hasSession()) openProjection() else connect(true) },
-                phoneSessionAction = ::onHomePhoneSessionClick, usb = { connect(false) },
+                choosePhone = ::choosePhone, usb = { connect(false) },
+                sessionChanged = { mazdaHomeView?.refreshSession() },
             ).apply {
                 mazdaHomeView = this
                 status = stage
                 this@DiPlayActivity.connectButton = connectButton
                 setupError?.let { instructions.text = it }
-                this@DiPlayActivity.phoneSessionButton = phoneSessionButton
             }
         } else if (page == "settings" && isExpandedSettingsLayout) {
             content.setPadding(0, 0, 0, dp(32))
@@ -988,8 +988,12 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             card.addView(label(off, 15, WARNING).apply { setPadding(0, dp(14), 0, 0) })
             if (!compact) card.addView(homeButton(getString(R.string.open_car_hotspot_settings), false) { openCarWifiSettings() }, matchButton(CONTROL_GAP_DP, 56))
         }
-        phoneSessionButton = homeButton(getString(R.string.choose_iphone), false, ::onHomePhoneSessionClick)
-        card.addView(phoneSessionButton, matchButton(if (compact) CONTROL_GAP_DP else 16, if (compact) 46 else 56))
+        card.addView(homeButton(getString(R.string.choose_iphone), false) { choosePhone() }, matchButton(if (compact) CONTROL_GAP_DP else 16, if (compact) 46 else 56))
+        disconnectButton = homeButton(getString(R.string.disconnect), false) {
+            disconnectButton?.isEnabled = false
+            CarPlayBackgroundSession.stop { runOnUiThread { refreshStatus() } }
+        }.apply { visibility = View.GONE }
+        card.addView(disconnectButton, matchButton(if (compact) CONTROL_GAP_DP else 16, if (compact) 46 else 56))
         val right = column().apply { gravity = Gravity.CENTER_HORIZONTAL }
         val logo = ImageView(this).apply {
             setImageResource(R.drawable.ic_carplay)
@@ -5583,12 +5587,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private fun connect(wireless: Boolean) {
         startupHotspotCancelled = true
         if (wireless && pendingCarHotspotSetup) { toast(getString(R.string.save_your_hotspot_details_in_connection_setup_first)); page = "connection"; render(); return }
-        if (wireless && AirPlayPersistence.loadWirelessHotspotMode(this) == WirelessHotspotMode.WIFI_P2P &&
-            runCatching { applicationContext.getSystemService(WifiManager::class.java)?.isWifiEnabled }.getOrNull() == false) {
-            val message = getString(R.string.turn_on_wi_fi_in_the_head_unit_s_settings_to_connect)
-            mazdaHomeView?.showToast(message) ?: toast(message)
-            return
-        }
+        if (MzdConnectionPreflight.blocked(this, wireless) { message ->
+                mazdaHomeView?.showToast(message) ?: toast(message)
+            }) return
         if (setupError != null) { toast(setupError!!); return }
         if (wireless && AirPlayPersistence.loadWirelessHotspotMode(this) == WirelessHotspotMode.MANUAL &&
             hotspotError(storedSsid(), storedPassword()) != null) {
@@ -5718,18 +5719,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
     }
 
-    private fun onHomePhoneSessionClick() {
-        // Read the live session again: the label may be up to one status tick old.
-        if (CarPlayBackgroundSession.isStopping()) return
-        if (!CarPlayBackgroundSession.hasSession()) {
-            choosePhone()
-            return
-        }
-        phoneSessionButton?.isEnabled = false
-        CarPlayBackgroundSession.stop { runOnUiThread { refreshStatus() } }
-        refreshStatus()
-    }
-
     private fun refreshStatus() {
         val running = CarPlayBackgroundSession.hasSession()
         // A USB session shares this card's status and Disconnect, but not its wireless title or Wi-Fi hint (#742).
@@ -5745,12 +5734,11 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         if (lastRunning != running) {
             connectButton?.text = if (running) getString(R.string.open_carplay) else getString(R.string.connect_phone)
+            disconnectButton?.visibility = if (running) View.VISIBLE else View.GONE
+            disconnectButton?.isEnabled = true
             lastRunning = running
         }
-        phoneSessionButton?.apply {
-            text = getString(if (running) R.string.disconnect else R.string.choose_iphone)
-            isEnabled = !CarPlayBackgroundSession.isStopping()
-        }
+        mazdaHomeView?.refreshSession()
         connectButton?.isEnabled = setupError == null
         refreshReconnectBar()
         refreshReadiness()

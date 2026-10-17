@@ -1,4 +1,6 @@
-package com.shilapi.xcertplay
+package com.shilapi.xcertplay.mazda
+
+import com.shilapi.xcertplay.*
 
 import android.bluetooth.BluetoothAdapter
 import android.content.Intent
@@ -29,12 +31,12 @@ import org.robolectric.shadows.ShadowResources
 import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], qualifiers = "en-w900dp-h720dp", shadows = [HomeSessionButtonTest.HomeResources::class])
-class HomeSessionButtonTest {
+@Config(sdk = [29], qualifiers = "en-w900dp-h720dp", shadows = [MzdHomeSessionButtonTest.HomeResources::class])
+class MzdHomeSessionButtonTest {
     private var stopCompletion: (() -> Unit)? = null
     private var stops = 0
 
-    @Test fun choosingAPhoneWithoutASessionKeepsTheSelectionAction() = forBothHomes { activity ->
+    @Test fun choosingAPhoneWithoutASessionKeepsTheSelectionAction() = forMazdaHome { activity ->
         val action = sessionButton(activity)
         assertEquals(activity.getString(R.string.choose_iphone), action.text.toString())
         choosePairedPhone(activity, action)
@@ -43,7 +45,7 @@ class HomeSessionButtonTest {
         assertEquals(activity.getString(R.string.choose_iphone), sessionButton(activity).text.toString())
     }
 
-    @Test fun connectingAndConnectedSessionsReuseTheSameButton() = forBothHomes { activity ->
+    @Test fun connectingAndConnectedSessionsReuseTheSameButton() = forMazdaHome { activity ->
         val action = sessionButton(activity)
         val parent = action.parent
         val position = (parent as ViewGroup).indexOfChild(action)
@@ -65,7 +67,7 @@ class HomeSessionButtonTest {
         assertEquals(activity.getString(R.string.connect_phone), connectButton(activity).text.toString())
     }
 
-    @Test fun disconnectRemainsDisabledAcrossRefreshRebuildAndRepeatedClicks() = forBothHomes { activity ->
+    @Test fun disconnectRemainsDisabledAcrossRefreshRebuildAndRepeatedClicks() = forMazdaHome { activity ->
         startSession()
         refresh(activity)
         var action = sessionButton(activity)
@@ -91,7 +93,7 @@ class HomeSessionButtonTest {
         assertSingleSessionAction(activity)
     }
 
-    @Test fun aStopStartedElsewhereAlsoDisablesTheHomeAction() = forBothHomes { activity ->
+    @Test fun aStopStartedElsewhereAlsoDisablesTheHomeAction() = forMazdaHome { activity ->
         startSession()
         CarPlayBackgroundSession.stop()
         refresh(activity)
@@ -103,7 +105,7 @@ class HomeSessionButtonTest {
         assertEquals(activity.getString(R.string.choose_iphone), sessionButton(activity).text.toString())
     }
 
-    @Test fun clickUsesTheLiveSessionWhenTheSelectionLabelIsStale() = forBothHomes { activity ->
+    @Test fun clickUsesTheLiveSessionWhenTheSelectionLabelIsStale() = forMazdaHome { activity ->
         val action = sessionButton(activity)
         startSession()
         action.performClick()
@@ -114,7 +116,7 @@ class HomeSessionButtonTest {
         finishStop()
     }
 
-    @Test fun clickOpensSelectionWhenTheDisconnectLabelIsStale() = forBothHomes { activity ->
+    @Test fun clickOpensSelectionWhenTheDisconnectLabelIsStale() = forMazdaHome { activity ->
         startSession()
         refresh(activity)
         val action = sessionButton(activity)
@@ -123,7 +125,7 @@ class HomeSessionButtonTest {
         assertEquals(0, stops)
     }
 
-    @Test fun aCompletedStopThatLeavesTheSessionPresentAllowsRetry() = forBothHomes { activity ->
+    @Test fun aCompletedStopThatLeavesTheSessionPresentAllowsRetry() = forMazdaHome { activity ->
         startSession()
         refresh(activity)
         val action = sessionButton(activity)
@@ -141,8 +143,33 @@ class HomeSessionButtonTest {
         assertTrue(action.isEnabled)
     }
 
-    private fun forBothHomes(check: (DiPlayActivity) -> Unit) {
-        for (mazda in listOf(false, true)) {
+    @Test fun ordinaryHomeKeepsSeparateSelectionAndDisconnectButtons() {
+        HomeResources.mazda = false
+        val app = RuntimeEnvironment.getApplication()
+        app.getSharedPreferences("diplay", 0).edit().clear().commit()
+        app.getSharedPreferences("xcertplay_airplay", 0).edit().clear().commit()
+        val controller = Robolectric.buildActivity(DiPlayActivity::class.java,
+            Intent(app, DiPlayActivity::class.java).putExtra("page", "home")).setup()
+        try {
+            val activity = controller.get()
+            val choose = descendants(activity.window.decorView).filterIsInstance<Button>()
+                .single { it.text == activity.getString(R.string.choose_iphone) }
+            val disconnect = ReflectionHelpers.getField<Button>(activity, "disconnectButton")
+            assertEquals(View.GONE, disconnect.visibility)
+            startSession(); refresh(activity)
+            assertEquals(View.VISIBLE, disconnect.visibility)
+            assertEquals(activity.getString(R.string.choose_iphone), choose.text.toString())
+            choosePairedPhone(activity, choose)
+            assertEquals(0, stops)
+        } finally {
+            CarPlayBackgroundSession.clear()
+            finishStop()
+            controller.pause().stop().destroy()
+        }
+    }
+
+    private fun forMazdaHome(check: (DiPlayActivity) -> Unit) {
+        for (mazda in listOf(true)) {
             HomeResources.mazda = mazda
             stops = 0
             CarPlayBackgroundSession.clear()
@@ -192,7 +219,7 @@ class HomeSessionButtonTest {
     }
 
     private fun refresh(activity: DiPlayActivity) = ReflectionHelpers.callInstanceMethod<Unit>(activity, "refreshStatus")
-    private fun sessionButton(activity: DiPlayActivity): Button = ReflectionHelpers.getField(activity, "phoneSessionButton")
+    private fun sessionButton(activity: DiPlayActivity): Button = ReflectionHelpers.getField<MzdHomeView>(activity, "mazdaHomeView").phoneSessionButton
     private fun connectButton(activity: DiPlayActivity): Button = ReflectionHelpers.getField(activity, "connectButton")
     private fun assertSingleSessionAction(activity: DiPlayActivity) {
         val labels = listOf(activity.getString(R.string.choose_iphone), activity.getString(R.string.disconnect))
