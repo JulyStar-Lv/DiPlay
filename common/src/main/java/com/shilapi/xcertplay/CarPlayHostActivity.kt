@@ -725,6 +725,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     currentSurfaceTexture = texture
                 }
             }
+            if (existing !== surface) mazdaVideo?.surfaceChanged()
             appendLog(if (existing === surface) "Texture surface reused" else "Texture surface created")
             if (MzdIntegration.enabled(this@CarPlayHostActivity)) showLastPicture()
             attachSurface(surface)
@@ -742,6 +743,7 @@ class CarPlayHostActivity : ComponentActivity() {
             if (currentSurfaceTexture !== texture) return true
             currentSurface?.let(videoSurfaceOwner::clear)
             currentSurfaceTexture = null
+            mazdaVideo?.surfaceChanged()
             appendLog("Texture surface destroyed")
             return true
         }
@@ -757,6 +759,7 @@ class CarPlayHostActivity : ComponentActivity() {
             if (isDestroyed || holder !== fallbackVideoView?.holder) return
             val surface = holder.surface
             videoSurfaceOwner.replace(surface, releaseOnDetach = false)
+            mazdaVideo?.surfaceChanged()
             appendLog("SurfaceView video surface created valid=${surface.isValid}")
             attachSurface(surface)
             videoView?.let { updateVideoLayout(it.width, it.height) }
@@ -777,6 +780,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
         override fun surfaceDestroyed(holder: SurfaceHolder) {
             val surface = holder.surface
+            if (surface === currentSurface) mazdaVideo?.surfaceChanged()
             captureLastPicture()
             // The SurfaceHolder contract: nothing may render to the surface once this returns. Every decoder
             // is asked at once, then waited for against one deadline; each confirms once it has moved,
@@ -1917,7 +1921,12 @@ class CarPlayHostActivity : ComponentActivity() {
         val videoCanvas = if (MzdIntegration.enabled(this)) MzdVideoCanvas(this).also { canvas ->
             root.addView(canvas, FrameLayout.LayoutParams(-1, -1))
             canvas.addOnLayoutChangeListener { _, l, t, r, b, oldL, oldT, oldR, oldB ->
-                if (r - l != oldR - oldL || b - t != oldB - oldT) scheduleDisplaySize(r - l, b - t)
+                if (r - l != oldR - oldL || b - t != oldB - oldT) {
+                    // A prepared layer already has its target chrome. Other layouts still
+                    // need the logical viewport, since the video Surface never changes size.
+                    if (mazdaVideo?.isPanelMoving != true) updateVideoChrome(r - l, b - t)
+                    scheduleDisplaySize(r - l, b - t)
+                }
             }
         } else root
         val video = TextureView(this).apply {
@@ -2339,8 +2348,7 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     // The panel's strip of the stream, mapped through the video's layout in the window.
-    private fun placeSidePanel(outputWidth: Int, viewHeight: Int) {
-        val viewWidth = videoViewportWidth(outputWidth)
+    private fun placeSidePanel(viewWidth: Int, viewHeight: Int) {
         val panel = sidePanel ?: return
         val display = sessionDisplay ?: return
         val strip = display.viewAreas?.let { it.panelRect(it.current) } ?: return
@@ -2366,8 +2374,7 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     // The whole screen CarPlay lays out by (the panel's strip included), in the window.
-    private fun sidePanelScreenRect(outputWidth: Int, viewHeight: Int): RectF? {
-        val viewWidth = videoViewportWidth(outputWidth)
+    private fun sidePanelScreenRect(viewWidth: Int, viewHeight: Int): RectF? {
         val display = sessionDisplay ?: return null
         val screen = display.viewAreas?.let { it.layoutArea(it.current) } ?: return null
         val content = contentRect(viewWidth, viewHeight)
@@ -2383,8 +2390,7 @@ class CarPlayHostActivity : ComponentActivity() {
         setOnTouchListener { view, event -> onSidePanelTabTouch(view, event) }
     }
 
-    private fun placeSidePanelTab(outputWidth: Int, viewHeight: Int) {
-        val viewWidth = videoViewportWidth(outputWidth)
+    private fun placeSidePanelTab(viewWidth: Int, viewHeight: Int) {
         val tab = sidePanelTab ?: return
         val from = sidePanelOpenEdge()
         val screen = sidePanelScreenRect(viewWidth, viewHeight)
@@ -2472,7 +2478,7 @@ class CarPlayHostActivity : ComponentActivity() {
             MotionEvent.ACTION_DOWN -> {
                 val from = sidePanelOpenEdge() ?: return false
                 val view = videoView ?: return false
-                sidePanelScreen = sidePanelScreenRect(view.width, view.height) ?: return false
+                sidePanelScreen = sidePanelScreenRect(videoViewportWidth(view.width), view.height) ?: return false
                 sidePanelEdge = when (from) {
                     Gravity.BOTTOM -> Gravity.TOP
                     Gravity.LEFT -> Gravity.END
@@ -2678,7 +2684,7 @@ class CarPlayHostActivity : ComponentActivity() {
         sidePanel?.visibility = View.GONE
         mainHandler.removeCallbacks(sidePanelTick)
         com.shilapi.xcertplay.hud.BydTyreStatus.stop()
-        videoView?.let { placeSidePanelTab(it.width, it.height) }
+        videoView?.let { placeSidePanelTab(videoViewportWidth(it.width), it.height) }
     }
 
     // Tyres through the head unit's adb shell; the reader stops by itself where there is no BYD autoservice.
@@ -5916,6 +5922,11 @@ class CarPlayHostActivity : ComponentActivity() {
             })
         }
         val panelWidth = videoViewportWidth(viewWidth)
+        updateVideoChrome(panelWidth, viewHeight)
+    }
+
+    // These coordinates are logical viewport coordinates, already independent of the Surface.
+    private fun updateVideoChrome(panelWidth: Int, viewHeight: Int) {
         if (sidePanelShown) placeSidePanel(panelWidth, viewHeight)
         placeSidePanelTab(panelWidth, viewHeight)
     }
@@ -6335,6 +6346,7 @@ class CarPlayHostActivity : ComponentActivity() {
         // Detach our wrapper before removing its TextureView; a late destruction callback
         // must not clear the framework-owned replacement surface.
         videoSurfaceOwner.clear()
+        mazdaVideo?.surfaceChanged()
         currentSurfaceTexture = null
         texture.surfaceTextureListener = null
         root.removeView(texture)
@@ -6459,7 +6471,11 @@ class CarPlayHostActivity : ComponentActivity() {
         gestureTracking = false
         controller?.sendTouch(emptyList())
         if (!integration.begin(targetWidth, layerMotion)) return false
-        videoView?.let { updateVideoLayout(it.width, it.height) }
+        videoView?.let {
+            updateVideoLayout(it.width, it.height)
+            // Prepare tab margins before the one target-size measure, never at the 400 ms end.
+            if (layerMotion) updateVideoChrome(targetWidth, it.height)
+        }
         mainHandler.removeCallbacks(applyDisplaySize)
         pendingDisplaySize = null
         return !deferUntilPanelEnd || layerMotion

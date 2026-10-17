@@ -17,8 +17,9 @@ internal class MzdTransitionMask(
     private val checkFrame: ((Boolean) -> Unit) -> Unit,
     private val requestPicture: () -> Unit,
     private val renderedFrames: () -> Long,
-    private val textureOutput: Boolean,
+    private var textureOutput: Boolean,
     private val retryLayout: () -> Unit = {},
+    private val surfaceAvailable: () -> Boolean = { true },
 ) {
     private var updatingPicture = false
     val view = object : ImageView(parent.context) {
@@ -96,7 +97,7 @@ internal class MzdTransitionMask(
         }
     }
     private val recover = Runnable {
-        if (isShowing && !fading) {
+        if (isShowing && !fading && surfaceAvailable()) {
             // Pixel colour is evidence, not an acknowledgement: a valid dark screen can fail it.
             // Keep the session and controls usable even if copying/area negotiation never recovers.
             Log.w("DiPlayUi", "Mazda transition guard expired; restoring video and touch")
@@ -152,6 +153,16 @@ internal class MzdTransitionMask(
         if (textureOutput) inspectFrame()
     }
 
+    fun surfaceChanged(textureOutput: Boolean = this.textureOutput) {
+        this.textureOutput = textureOutput
+        if (!isShowing) return
+        // Frames and a pending fade belong to the old Surface. Keep its blurred picture,
+        // restore full opacity and require two presentations from the replacement instead.
+        val wasSettled = settled
+        begin(targetWidth)
+        if (wasSettled) settle(targetWidth)
+    }
+
     fun dispose() {
         ++generation
         cancelCallbacks()
@@ -165,15 +176,17 @@ internal class MzdTransitionMask(
     }
 
     private fun finish() {
-        if (!isShowing || fading) return
+        if (!isShowing || fading || !surfaceAvailable()) return
         fading = true
         val token = generation
         cancelCallbacks()
         waitingForFrame = false
         view.animate().alpha(0f).setDuration(FADE_MILLIS).withEndAction {
             if (generation == token) {
-                view.visibility = View.GONE
-                view.setImageDrawable(null)
+                if (surfaceAvailable()) {
+                    view.visibility = View.GONE
+                    view.setImageDrawable(null)
+                } else surfaceChanged()
             }
         }.start()
     }

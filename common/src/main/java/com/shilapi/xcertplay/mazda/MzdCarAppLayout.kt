@@ -71,12 +71,23 @@ internal class MzdCarAppLayout(context: Context) : FrameLayout(context) {
         getLocationOnScreen(windowOrigin)
         // Reparenting a task between the two halves can preserve its size and skip onMeasure.
         // Invalidate the coordinates before drawing, including changes to the decor's insets.
-        if (embedded && (isPassengerArea(windowOrigin[0], width) != passengerPanel ||
-                windowOrigin[0] != laidOutOrigin[0] || windowOrigin[1] != laidOutOrigin[1])) {
+        if (embedded && isPassengerArea(windowOrigin[0], width) != passengerPanel) {
             updateWindowArea(width)
             requestLayout()
             false
-        } else true
+        } else {
+            if (embedded && (windowOrigin[0] != laidOutOrigin[0] || windowOrigin[1] != laidOutOrigin[1])) {
+                // Insets/task position moved, but the panel size is unchanged. Offset the
+                // prepared viewport in this draw instead of cancelling a tail animation frame.
+                getChildAt(0)?.apply {
+                    offsetLeftAndRight(laidOutOrigin[0] - windowOrigin[0])
+                    offsetTopAndBottom(laidOutOrigin[1] - windowOrigin[1])
+                }
+                windowOrigin.copyInto(laidOutOrigin)
+                updatePanelDrawing()
+            }
+            true
+        }
     }
     private val navigationReceiver = object : BroadcastReceiver() {
         @Suppress("DEPRECATION")
@@ -120,8 +131,7 @@ internal class MzdCarAppLayout(context: Context) : FrameLayout(context) {
         super.onAttachedToWindow()
         viewTreeObserver.addOnPreDrawListener(windowPositionListener)
         updateWindowArea(width)
-        vehiclePanel = readVehiclePanel()
-        panelProgress = desiredPanelProgress()
+        snapToVehiclePanel()
         val activity = context as? Activity
         if (!navigationReceiverRegistered && activity != null && isCockpitWindow(activity)) {
             ContextCompat.registerReceiver(context, navigationReceiver,
@@ -157,11 +167,7 @@ internal class MzdCarAppLayout(context: Context) : FrameLayout(context) {
         super.onWindowVisibilityChanged(visibility)
         // AppList jumps to the current state off screen, rather than replaying a resize on return.
         // Use visibility, not focus: an unfocused passenger/multi-window panel can still be visible.
-        panelAnimator?.cancel()
-        panelAnimator = null
-        releaseBackdrop()
-        vehiclePanel = readVehiclePanel()
-        panelProgress = desiredPanelProgress()
+        snapToVehiclePanel()
         requestLayout()
     }
 
@@ -172,11 +178,26 @@ internal class MzdCarAppLayout(context: Context) : FrameLayout(context) {
         val passenger = isPassengerArea(windowOrigin[0], width)
         if (passenger == passengerPanel) return
         passengerPanel = passenger
+        snapToVehiclePanel()
+    }
+
+    private fun panelWidth(progress: Float) = PANEL_WIDTH_PX -
+        (if (passengerPanel) PASSENGER_PANEL_MARGIN_PX else 0) - panelLeft(progress)
+
+    private fun snapToVehiclePanel() {
+        val interrupted = panelAnimator?.isRunning == true || fixedPanelProgress != null
         panelAnimator?.cancel()
         panelAnimator = null
         releaseBackdrop()
         vehiclePanel = readVehiclePanel()
-        panelProgress = desiredPanelProgress()
+        val target = desiredPanelProgress()
+        if (panelProgress != target || interrupted) {
+            // Cancellation finishes the OLD target. Retarget its mask before snapping to the
+            // provider's current state, including a hidden-window reversal or task reparent.
+            (context as? com.shilapi.xcertplay.CarPlayHostActivity)
+                ?.beginMazdaPanelTransition(panelWidth(target))
+        }
+        panelProgress = target
     }
 
     private fun movePanel() {
@@ -186,9 +207,7 @@ internal class MzdCarAppLayout(context: Context) : FrameLayout(context) {
         val target = desiredPanelProgress()
         val animate = embedded && isLaidOut && isShown && windowVisibility == VISIBLE &&
             !(Build.VERSION.SDK_INT >= 26 && !ValueAnimator.areAnimatorsEnabled())
-        val targetLeft = if (passengerPanel) PASSENGER_PANEL_MARGIN_PX
-            else if (target == 1f) NARROW_PANEL_LEFT_PX else FULL_PANEL_LEFT_PX
-        val targetWidth = PANEL_WIDTH_PX - targetLeft
+        val targetWidth = panelWidth(target)
         var prepared = false
         if (panelProgress != target || interrupted) {
             // Keep CarPlay's mask ahead of the first resize, including immediate state changes.

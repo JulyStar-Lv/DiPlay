@@ -16,6 +16,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.LooperMode
+import org.robolectric.shadows.ShadowChoreographer
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [25, 34])
@@ -30,6 +31,7 @@ class MzdTransitionMaskTest {
     private var requests = 0
     private var rendered = 10L
     private var layoutRetries = 0
+    private var surfaceAvailable = true
 
     @Before fun setUp() {
         activity = Robolectric.buildActivity(Activity::class.java).setup().get()
@@ -43,7 +45,7 @@ class MzdTransitionMaskTest {
         mask = create(texture = true)
     }
 
-    @After fun tearDown() { mask.dispose(); activity.finish() }
+    @After fun tearDown() { mask.dispose(); activity.finish(); ShadowChoreographer.setPaused(false) }
 
     @Test fun immediatelyCoversEveryWidthWithoutCapturingOrDrawingOldControls() {
         mask.begin(2496)
@@ -224,6 +226,45 @@ class MzdTransitionMaskTest {
         assertEquals(completed, requests)
     }
 
+    @Test fun replacingTheSurfaceDiscardsPendingChecksAndCancelsItsFadeOnBothOutputs() {
+        for (texture in listOf(true, false)) {
+            ShadowChoreographer.setPaused(true)
+            mask.dispose()
+            mask = create(texture)
+            fun frame() {
+                if (texture) mask.textureUpdated() else rendered++
+                idle(50)
+            }
+            mask.begin(2496); mask.settle(2496); idle(450)
+            frame()
+            val stale = checks.last()
+            surfaceAvailable = false
+            mask.surfaceChanged()
+            stale(true)
+            idle(8_500)
+            assertTrue("Recovery cannot expose a destroyed Surface", mask.isShowing)
+            assertEquals(1f, mask.view.alpha, 0f)
+            surfaceAvailable = true
+            mask.surfaceChanged(); idle(450)
+            frame(); checks.last()(true)
+            assertTrue(mask.isShowing)
+            frame(); checks.last()(true)
+            idle(50) // Destroy the replacement during the 150 ms fade too.
+            surfaceAvailable = false
+            mask.surfaceChanged(); idle(200)
+            assertTrue(mask.isShowing)
+            assertEquals(1f, mask.view.alpha, 0f)
+            surfaceAvailable = true
+            mask.surfaceChanged(); idle(450)
+            frame(); checks.last()(true)
+            frame(); checks.last()(true)
+            ShadowChoreographer.setPaused(false)
+            idle(250)
+            assertFalse("Two fresh target presentations still release the replacement: " +
+                "alpha=${mask.view.alpha}", mask.isShowing)
+        }
+    }
+
     private fun present(ready: Boolean) {
         val previous = checks.size
         mask.textureUpdated()
@@ -232,9 +273,32 @@ class MzdTransitionMaskTest {
         checks.last()(ready)
     }
 
+    @Test fun replacingATextureWithSurfaceViewUsesTheNewOutputsPresentationCounter() {
+        ShadowChoreographer.setPaused(true)
+        mask.begin(2496); mask.settle(2496); idle(450)
+        mask.textureUpdated(); idle(50)
+        val stale = checks.last()
+        mask.surfaceChanged(textureOutput = false)
+        stale(true)
+        idle(450)
+        val before = checks.size
+        // The replacement produces no TextureView callbacks at all.
+        rendered++; idle(50)
+        assertEquals(before + 1, checks.size)
+        checks.last()(true)
+        assertTrue(mask.isShowing)
+        rendered++; idle(50)
+        assertEquals(before + 2, checks.size)
+        checks.last()(true)
+        ShadowChoreographer.setPaused(false)
+        idle(250)
+        assertFalse("A changed output type must not keep the blur until recovery", mask.isShowing)
+    }
+
     private fun create(texture: Boolean) = MzdTransitionMask(root, output, Handler(Looper.getMainLooper()),
         checkFrame = { checks += it }, requestPicture = { requests++ },
-        renderedFrames = { rendered }, textureOutput = texture, retryLayout = { layoutRetries++ })
+        renderedFrames = { rendered }, textureOutput = texture, retryLayout = { layoutRetries++ },
+        surfaceAvailable = { surfaceAvailable })
 
     private fun idle(millis: Long) = shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(millis))
 }

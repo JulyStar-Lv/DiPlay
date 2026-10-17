@@ -46,6 +46,7 @@ internal class MzdVideoCoordinator(
                 requestPicture = { state()?.sink?.refreshPicture(SCREEN_TYPE_MAIN) },
                 renderedFrames = { state()?.sink?.liveVideoCounters()?.rendered ?: -1L },
                 textureOutput = current.output is TextureView,
+                surfaceAvailable = { state()?.surface?.isValid == true },
                 retryLayout = { state()?.let { retryLayout(it.panelWidth, it.output.height) } })
                 .also { mask = it }
         }
@@ -97,6 +98,12 @@ internal class MzdVideoCoordinator(
     }
 
     fun textureUpdated() { mask?.textureUpdated() }
+    fun surfaceChanged() {
+        ++generation
+        val current = state()
+        if (current != null) mask?.surfaceChanged(current.output is TextureView)
+        else mask?.surfaceChanged()
+    }
     fun dispose() { ++generation; mask?.dispose(); mask = null; movingTo = null }
 
     private fun copyCanvas(current: State, copied: (Bitmap) -> Unit) {

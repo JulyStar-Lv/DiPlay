@@ -251,7 +251,7 @@ class MzdVideoTransitionTest {
                     assertEquals("Narrow startup and repeated switches retain their video buffers", 1, changes)
                     val picture = content(width, 1080)
                     val sidePanelScreen = ReflectionHelpers.callInstanceMethod<RectF>(host, "sidePanelScreenRect",
-                        ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType, output.width),
+                        ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType, width),
                         ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType, output.height))
                     val screen = areas.layoutArea(areas.current)
                     assertEquals("Side-panel hit testing uses window coordinates, not the full-size surface",
