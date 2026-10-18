@@ -62,6 +62,7 @@ object AirPlayPersistence {
     private const val KEY_MANUAL_HOTSPOT_BAND = "manual_hotspot_band"
     private const val KEY_MANUAL_HOTSPOT_CHANNEL = "manual_hotspot_channel"
     private const val KEY_MANUAL_HOTSPOT_SECURITY = "manual_hotspot_security"
+    private const val KEY_MANUAL_HOTSPOT_INTERFACE = "manual_hotspot_interface"
     private const val KEY_DEBUG_LOGS_ENABLED = "debug_logs_enabled"
     private const val KEY_MANUFACTURER = "manufacturer"
     private const val KEY_MODEL = "model"
@@ -484,6 +485,18 @@ object AirPlayPersistence {
     fun saveManualHotspotSecurity(context: Context, security: ManualHotspotSecurity) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY_MANUAL_HOTSPOT_SECURITY, security.name)
+            .apply()
+    }
+
+    /** Interface that carries the car hotspot when the platform does not report it as a Wi-Fi AP. */
+    fun loadManualHotspotInterface(context: Context): String =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_MANUAL_HOTSPOT_INTERFACE, null)
+            .orEmpty()
+
+    fun saveManualHotspotInterface(context: Context, interfaceName: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString(KEY_MANUAL_HOTSPOT_INTERFACE, interfaceName.trim())
             .apply()
     }
 

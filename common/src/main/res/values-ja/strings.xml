@@ -759,13 +759,13 @@
     <string name="split_screen_areas">車載端末の分割画面でCarPlayを表示</string>
     <string name="split_screen_areas_description">車載端末でDiPlayを分割画面にしたとき、黒帯を付けて縮小する代わりにウィンドウの大きさに合わせてCarPlayを描画します。再接続せずに全画面へ戻せます。初回にウィンドウサイズを記録するため、次回の接続から正確なサイズで表示します。Dockが「自動」の場合は下側に配置されます。次回の接続から反映されます。</string>
     <string name="carplay_rotation">再接続せず画面の向きに合わせてCarPlayを回転</string>
-    <string name="carplay_rotation_description">画面を回転できる車載端末向けです。縦画面と横画面を含む正方形の映像を使用し、向きが変わってもCarPlayを再接続せずに描画します。正方形の映像が大きいほど処理負荷が増え、特に大画面の「高画質」では滑らかさが低下する場合があります。画面をほとんど回転しない場合はオフもお試しください。カスタム安全領域は正方形の映像に適用されません。次回の接続から反映されます。</string>
+    <string name="carplay_rotation_description">画面を回転できる車載端末向けです。縦画面と横画面を含む正方形の映像を使用し、向きが変わってもCarPlayを再接続せずに描画します。正方形の映像が大きいほど処理負荷が増え、特に大画面の「高画質」では滑らかさが低下する場合があります。画面をほとんど回転しない場合はオフもお試しください。カスタム安全領域は正方形の映像に適用されません。iPhoneで撮ったCarPlayのスクリーンショットには、この画面に表示されない部分も含めて正方形全体が写ります。次回の接続から反映されます。</string>
     <string name="carplay_rotation_picture">正方形の映像</string>
     <string name="carplay_rotation_smoother">滑らか（1920）</string>
     <string name="carplay_rotation_sharper">鮮明（画面サイズに合わせる）</string>
     <string name="auto_grant_incomplete">要求した権限をすべて確認できませんでした。下の状態を確認し、ネットワークADBを有効にして再試行するか、手動で設定してください。既存の権限は維持されます。</string>
-    <string name="carplay_call_controls_experimental">CarPlayの通話キー（実験的機能）</string>
-    <string name="carplay_call_controls_experimental_description">未検証のDiLink 3の通話・音声・再生キーを使用します。実車での検証が必要です。CarPlayの着信中は「次の曲」で応答、「前の曲」で拒否します。標準ではオフです。</string>
+    <string name="carplay_call_controls_experimental">CarPlayの通話・Siri・メディアキー（実験的機能）</string>
+    <string name="carplay_call_controls_experimental_description">電話キーでCarPlayの着信に応答し、終話／モードキーで着信を拒否または通話を終了します。着信中は「次の曲」でも応答、「前の曲」で拒否できます。通話開始後、この2つの曲送りキーでは通話を終了しません。DiLink 3専用のSiriと再生／一時停止キーも有効にします。標準ではオフです。車種とファームウェアへの対応は実車で確認してください。メーターパネルの通話表示は別の設定です。</string>
     <string name="side_panel">CarPlay横のサイドパネル（実験的機能）</string>
     <string name="side_panel_description">CarPlayを画面の約3分の2に表示し、残りにDiPlayのパネルを表示できます。横画面では助手席側、縦画面では下側に配置し、時計や取得できる場合はバッテリーを表示します。接続中のメニューから表示・非表示を切り替えられます。次回のCarPlay接続から反映されます。</string>
     <string name="side_panel_show">サイドパネル</string>
@@ -862,6 +862,8 @@
     <string name="settings_ambient_car_rhythm">車両純正の音楽リズム</string>
     <string name="settings_ambient_car_rhythm_description">CarPlay の音楽再生中は、車両純正のアンビエントライト音楽リズムが動作し、色と効果は車両のアンビエントライトメニューの設定に従います（そこで音楽リズムをオンにしてください）。その間、DiPlay はライトを制御しません。オンにするときに確認します。車両のネットワーク ADB は、ヘッドユニットが DiPlay 自身によるリズムの開始を許可しない場合にのみ必要です。</string>
     <string name="settings_ambient_car_rhythm_unavailable">車両の音楽リズムは使用できません。DiPlay 自身では開始できず、さらに DiPlay のネットワーク ADB アクセス、またはヘッドユニットのオーディオサービス呼び出しがありません。何も保存されていません。</string>
+    <string name="settings_ambient_car_rhythm_feed">音楽データを車のリズムに送る（古いヘッドユニット）</string>
+    <string name="settings_ambient_car_rhythm_feed_description">一部のヘッドユニット（2023年のHanなど）では、車のリズムは始まっても、CarPlayの音楽に対して車が独自のスペクトルを作らないため、照明が消えたままになります。再生中の音楽の16の周波数帯を車の照明コントローラーに送り、助手席側のダッシュを含む車のリズムが追従するようにします。上の車のミュージックリズムがオンのときのみ有効で、車のネットワークADBが必要です。</string>
     <string name="settings_interface_size">画面UIのサイズ</string>
     <string name="settings_interface_size_auto">自動</string>
     <string name="settings_interface_size_hint">DiPlay自体の文字と操作部のサイズです。「自動」は画面密度が低い大画面で拡大します。CarPlayの表示には影響しません。</string>
@@ -964,6 +966,8 @@
     <string name="settings_cluster_music_unknown">不明なアーティスト</string>
     <string name="connection_help_reset_wifi">以前のWi-Fi Direct接続が残っている可能性があります。下の「CarPlay Wi-Fiをリセット」を選び、再接続してください。</string>
     <string name="connection_help_bluetooth_unusable">この車載端末のBluetoothはiPhoneとデータ通信できません。ワイヤレスCarPlayは利用できないため、データ通信対応のUSBケーブルで接続してください。</string>
+    <string name="connection_help_wifi_direct_beside_hotspot">車載ホットスポットをオフにして「接続を再試行」をタップするか、「接続設定」で「車載ホットスポット」を選び、名前とパスワードを保存してください。</string>
+    <string name="wifi_direct_refused_beside_hotspot">車載ホットスポットがオンのため、Wi-Fi Directを同時に開始できません</string>
     <string name="connection_help_hotspot">車載端末のテザリングがオンで、名前とパスワードがDiPlayの設定と一致するか確認してください。可能なら5 GHzにして再試行してください。</string>
     <string name="connection_help_iphone_wifi">Wi-FiとBluetoothをオンにしてください。iPhoneで車載端末のWi-Fiに接続し、「自動接続」を有効にして再試行してください。改善しない場合は診断レポートを保存してください。</string>
     <string name="connection_help_permissions">車載端末でDiPlayにUSB、「付近のデバイス」、位置情報の権限を必要に応じて許可してから、再試行してください。</string>
@@ -1005,4 +1009,7 @@
     <string name="settings_launcher_bubble_unlocked">位置のロックを解除</string>
     <string name="settings_launcher_bubble_hold_to_lock">長押しでロック</string>
     <string name="settings_launcher_bubble_hold_to_unlock">長押しで解除</string>
+
+    <string name="settings_hotspot_interface">ホットスポットのインターフェース（任意）</string>
+    <string name="settings_hotspot_interface_description">Android が Wi-Fi ホットスポットとして報告しないネットワークインターフェースでホットスポットを動かすヘッドユニット専用です。一部の Geely、Lynk &amp; Co、その他の Qualcomm ユニットでは eth0.3 です。空欄のままにすると自動で検出します。</string>
 </resources>
