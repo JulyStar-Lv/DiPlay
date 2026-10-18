@@ -3,6 +3,7 @@ package com.shilapi.xcertplay.mazda
 import android.content.Context
 import com.shilapi.xcertplay.AirPlayPersistence
 import com.shilapi.xcertplay.AppAppearance
+import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 import com.shilapi.xcertplay.setup.SetupGuide
 import androidx.core.content.edit
 
@@ -11,6 +12,10 @@ internal object MzdDefaults {
     fun initialize(context: Context) {
         // These keys belong to AirPlayPersistence; keep its existing readers and writers unchanged.
         val preferences = context.getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE)
+        // Seed before any reader persists the shared fallback; retain saved modes on upgrades.
+        if (!preferences.contains("wireless_hotspot_mode")) {
+            AirPlayPersistence.saveWirelessHotspotMode(context, WirelessHotspotMode.WIFI_P2P)
+        }
         // Also seed upgrades already initialized by an earlier Mazda build. Explicit choices
         // (including off) are retained, and this only applies at the next CarPlay connection.
         if (!preferences.contains("mtk_decoder_tuning")) AirPlayPersistence.saveMtkDecoderTuning(context, true)

@@ -6,6 +6,7 @@ import android.content.res.Resources
 import com.shilapi.xcertplay.AirPlayPersistence
 import com.shilapi.xcertplay.AppAppearance
 import com.shilapi.xcertplay.host.R
+import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 import com.shilapi.xcertplay.setup.SetupGuide
 import org.junit.After
 import org.junit.Assert.*
@@ -32,6 +33,7 @@ class MzdDefaultsTest {
     }
 
     private fun assertMazdaDefaults() {
+        assertEquals(WirelessHotspotMode.WIFI_P2P, AirPlayPersistence.loadWirelessHotspotMode(context))
         assertFalse(AirPlayPersistence.loadHideTopBar(context))
         assertFalse(AirPlayPersistence.loadHideBottomBar(context))
         assertEquals(60, AirPlayPersistence.loadFps(context))
@@ -62,6 +64,7 @@ class MzdDefaultsTest {
     }
 
     @Test fun replacingAnExistingInstallationPreservesSavedChoicesAndFillsOnlyMissingSettings() {
+        AirPlayPersistence.saveWirelessHotspotMode(context, WirelessHotspotMode.MANUAL)
         AirPlayPersistence.saveHideTopBar(context, true)
         AirPlayPersistence.saveFps(context, 30)
         AirPlayPersistence.saveSettingsGestureFingers(context, 0)
@@ -73,6 +76,7 @@ class MzdDefaultsTest {
 
         assertTrue(AirPlayPersistence.loadHideTopBar(context))
         assertFalse(AirPlayPersistence.loadHideBottomBar(context))
+        assertEquals(WirelessHotspotMode.MANUAL, AirPlayPersistence.loadWirelessHotspotMode(context))
         assertEquals(30, AirPlayPersistence.loadFps(context))
         assertEquals(0, AirPlayPersistence.loadSettingsGestureFingers(context))
         assertEquals(AppAppearance.LIGHT, AirPlayPersistence.loadAppAppearance(context))
@@ -83,6 +87,7 @@ class MzdDefaultsTest {
 
     @Test fun laterLaunchesDoNotResetUserChangesAndClearingDataRestoresInitialization() {
         MzdDefaults.initialize(context)
+        AirPlayPersistence.saveWirelessHotspotMode(context, WirelessHotspotMode.EXISTING_WIFI)
         AirPlayPersistence.saveHideTopBar(context, true)
         AirPlayPersistence.saveHideBottomBar(context, true)
         AirPlayPersistence.saveFps(context, 30)
@@ -102,6 +107,8 @@ class MzdDefaultsTest {
         assertEquals("BYD", AirPlayPersistence.loadOemLabel(context))
         assertFalse(AirPlayPersistence.loadMtkDecoderTuning(context))
         assertFalse(AirPlayPersistence.loadMainBufferedAudio(context))
+
+        assertEquals(WirelessHotspotMode.EXISTING_WIFI, AirPlayPersistence.loadWirelessHotspotMode(context))
 
         clearPreferences()
         MzdDefaults.initialize(context)
@@ -152,6 +159,24 @@ class MzdDefaultsTest {
             assertEquals(bufferedMusic ?: true, AirPlayPersistence.loadMainBufferedAudio(context))
         }
     }
+
+    @Test fun initializedMazdaSeedsOnlyAnAbsentWirelessModeAndPreservesHotspotDetails() {
+        for (mode in listOf(null, WirelessHotspotMode.MANUAL, WirelessHotspotMode.WIFI_P2P,
+                WirelessHotspotMode.EXISTING_WIFI)) {
+            clearPreferences()
+            context.getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE).edit()
+                .putBoolean("mazda_defaults_initialized", true).commit()
+            if (mode != null) AirPlayPersistence.saveWirelessHotspotMode(context, mode)
+            AirPlayPersistence.saveManualHotspotSsid(context, "Saved car hotspot")
+            AirPlayPersistence.saveManualHotspotPassphrase(context, "saved-password")
+
+            MzdDefaults.initialize(context)
+
+            assertEquals(mode ?: WirelessHotspotMode.WIFI_P2P, AirPlayPersistence.loadWirelessHotspotMode(context))
+            assertEquals("Saved car hotspot", AirPlayPersistence.loadManualHotspotSsid(context))
+            assertEquals("saved-password", AirPlayPersistence.loadManualHotspotPassphrase(context))
+        }
+    }
 }
 
 @RunWith(RobolectricTestRunner::class)
@@ -160,6 +185,7 @@ class MzdApplicationTest {
     @Test fun applicationStartupInitializesSettingsBeforeAnyActivityIsCreated() {
         val application = RuntimeEnvironment.getApplication()
         assertTrue(application is MzdApplication)
+        assertEquals(WirelessHotspotMode.WIFI_P2P, AirPlayPersistence.loadWirelessHotspotMode(application))
         assertEquals(60, AirPlayPersistence.loadFps(application))
         assertEquals(AppAppearance.AUTO, AirPlayPersistence.loadAppAppearance(application))
         assertEquals(4, AirPlayPersistence.loadSettingsGestureFingers(application))

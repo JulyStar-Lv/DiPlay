@@ -86,6 +86,11 @@ from Settings. Existing saved preferences, including those retained when replaci
 are preserved. Clearing application data initializes the defaults again. Both classes live in
 `common/src/main/java/com/shilapi/xcertplay/mazda/`; other applications retain their defaults.
 
+Mazda defaults to Wi-Fi Direct (`WIFI_P2P`) when `wireless_hotspot_mode` is absent, before
+any Activity reads the shared car-hotspot fallback. This also fills an absent key on an
+already-initialized Mazda installation. Saved Car hotspot, Wi-Fi Direct and existing Wi-Fi
+choices are preserved; other applications keep the upstream Car hotspot default.
+
 Mazda also enables buffered music (experimental) when `main_buffered_audio` is absent,
 including upgrades initialized by older builds. Saved on/off choices are preserved. The
 existing setting still controls it, and the default applies at the next CarPlay connection.
