@@ -1,7 +1,9 @@
 <resources>
-    <!-- The launcher can immediately forward to the retained CarPlay session. Keep the OEM
-         desktop visible until that Activity draws its cached picture, instead of a black preview. -->
+    <!-- Match the OEM scene app's Activity occlusion while drawing transparent cockpit margins.
+         Suppress the starting preview when forwarding to a retained CarPlay session. -->
     <style name="Theme.Xcertplay.Mazda" parent="Theme.Xcertplay">
+        <item name="android:windowIsTranslucent">false</item>
+        <item name="android:windowShowWallpaper">false</item>
         <item name="android:windowDisablePreview">true</item>
     </style>
 </resources>

@@ -295,6 +295,65 @@ class MzdTransitionMaskTest {
         assertFalse("A changed output type must not keep the blur until recovery", mask.isShowing)
     }
 
+    @Test fun aBadPresentationDuringFadeRestoresBlurAndRequiresTwoNewFramesOnBothOutputs() {
+        for (texture in listOf(true, false)) {
+            ShadowChoreographer.setPaused(true)
+            mask.dispose(); mask = create(texture)
+            fun frame(ready: Boolean) {
+                val previous = checks.size
+                if (texture) mask.textureUpdated() else rendered++
+                idle(if (texture) 16L else 66L)
+                assertEquals(previous + 1, checks.size)
+                checks.last()(ready)
+            }
+            mask.begin(1728); mask.settle(1728); idle(450)
+            frame(true); frame(true)
+            idle(32)
+            assertTrue(mask.isShowing)
+            frame(false)
+            assertEquals("A black edge during fade restores full blur", 1f, mask.view.alpha, 0f)
+            idle(200)
+            assertTrue("The cancelled fade cannot hide the restored blur", mask.isShowing)
+            frame(true); idle(200)
+            assertTrue("One recovered presentation is insufficient", mask.isShowing)
+            frame(true)
+            ShadowChoreographer.setPaused(false)
+            idle(250)
+            assertFalse(mask.isShowing)
+        }
+    }
+
+    @Test fun aCopyPendingAtFadeEndCanStillRejectTheLatestPresentation() {
+        mask.begin(2496); mask.settle(2496); idle(450)
+        present(true); present(true)
+        mask.textureUpdated(); idle(16)
+        val pending = checks.last()
+        idle(200)
+        assertTrue("Do not discard a pending edge validation when the fade ends", mask.isShowing)
+        pending(false)
+        assertEquals(1f, mask.view.alpha, 0f)
+        present(true); present(true); idle(250)
+        assertFalse(mask.isShowing)
+    }
+
+    @Test fun repeatedFadeRegressionsDoNotExtendTheOriginalRecoveryDeadline() {
+        mask.begin(2496); mask.settle(2496); idle(450)
+        repeat(3) { present(true); present(true); present(false) }
+        idle(8_000)
+        assertFalse("A dark or unreadable edge cannot keep controls blocked forever", mask.isShowing)
+    }
+
+    @Test fun aStalledCopyAfterFadeEndCannotDisableTheRecoveryDeadline() {
+        mask.begin(2496); mask.settle(2496); idle(450)
+        present(true); present(true)
+        mask.textureUpdated(); idle(16)
+        val stalled = checks.last()
+        idle(8_000)
+        assertFalse("Recovery must also finish a fade whose end action already ran", mask.isShowing)
+        stalled(false)
+        assertFalse("The timed-out copy cannot restore an expired guard", mask.isShowing)
+    }
+
     private fun create(texture: Boolean) = MzdTransitionMask(root, output, Handler(Looper.getMainLooper()),
         checkFrame = { checks += it }, requestPicture = { requests++ },
         renderedFrames = { rendered }, textureOutput = texture, retryLayout = { layoutRetries++ },

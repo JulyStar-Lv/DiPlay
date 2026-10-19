@@ -104,6 +104,25 @@ class MzdTransitionFrameTest {
         }
     }
 
+    @Test fun narrowLeftPaddingIsCroppedButABlackPillarBeyondTheGuardCannotConfirmReadiness() {
+        for (divisor in listOf(1, 2)) for (origin in listOf(0, 768)) {
+            val width = 2496 / divisor
+            val height = 1080 / divisor
+            val area = AirPlayViewArea(1728 / divisor, height, origin / divisor)
+            for ((padding, ready) in listOf(8 to true, 40 to false)) {
+                val frame = picture(width, height, area)
+                try {
+                    val scale = frame.width.toFloat() / width
+                    Canvas(frame).drawRect(area.originX * scale, 0f,
+                        (area.originX + padding / divisor) * scale, frame.height.toFloat(),
+                        Paint().apply { color = Color.BLACK })
+                    assertEquals("Check the narrow left edge after cropping measured padding ($divisor/$origin/$padding)",
+                        ready, MzdTransitionFrame.matchesArea(frame, width, height, area))
+                } finally { frame.recycle() }
+            }
+        }
+    }
+
     @Test fun missingPixelsCannotProveReadinessAndNearBlackEncoderPaddingIsTolerated() {
         val area = AirPlayViewArea(1728, 1080)
         val frame = picture(2496, 1080, area, Color.rgb(8, 8, 8))

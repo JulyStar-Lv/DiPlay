@@ -48,4 +48,18 @@ class MzdWindowThemeTest {
             finally { attributes.recycle() }
         }
     }
+
+    @Test fun cockpitActivitiesOccludeAppListWithoutRequestingTheWallpaperWindow() {
+        val context = RuntimeEnvironment.getApplication()
+        for (activity in listOf(DiPlayActivity::class.java, CarPlayHostActivity::class.java)) {
+            val info = context.packageManager.getActivityInfo(ComponentName(context, activity), 0)
+            val theme = context.resources.newTheme().apply { applyStyle(info.theme, true) }
+            val attributes = theme.obtainStyledAttributes(intArrayOf(
+                android.R.attr.windowIsTranslucent, android.R.attr.windowShowWallpaper))
+            try {
+                assertFalse("${activity.simpleName} must occlude lower Activities", attributes.getBoolean(0, true))
+                assertFalse("OEM task background owns the wallpaper", attributes.getBoolean(1, true))
+            } finally { attributes.recycle() }
+        }
+    }
 }

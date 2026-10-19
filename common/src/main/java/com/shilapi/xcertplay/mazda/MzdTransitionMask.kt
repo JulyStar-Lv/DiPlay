@@ -48,6 +48,7 @@ internal class MzdTransitionMask(
     private var settled = false
     private var waitingForFrame = false
     private var fading = false
+    private var fadeEnded = false
     private var checking = false
     private var readyFrames = 0
     private var textureFrames = 0L
@@ -81,7 +82,18 @@ internal class MzdTransitionMask(
             if (token != generation || !isShowing || !waitingForFrame) return@checkFrame
             checking = false
             readyFrames = if (ready) readyFrames + 1 else 0
-            if (readyFrames >= REQUIRED_READY_FRAMES) finish()
+            if (!ready && fading) {
+                // An iPhone area animation may regress after its first two matching frames.
+                // Cancel the pending hide and restore the SAME blurred picture immediately.
+                ++generation
+                view.animate().cancel()
+                view.alpha = 1f
+                fading = false
+                fadeEnded = false
+                handler.postDelayed(timeout, RETRY_MILLIS)
+                requestPicture()
+            } else if (fading && fadeEnded) completeFade()
+            else if (readyFrames >= REQUIRED_READY_FRAMES) finish()
             // A static page needs another presentation too; never count the same buffer twice.
             else if (ready) requestPicture()
         }
@@ -97,18 +109,18 @@ internal class MzdTransitionMask(
         }
     }
     private val recover = Runnable {
-        if (isShowing && !fading && surfaceAvailable()) {
+        if (isShowing && surfaceAvailable()) {
             // Pixel colour is evidence, not an acknowledgement: a valid dark screen can fail it.
             // Keep the session and controls usable even if copying/area negotiation never recovers.
             Log.w("DiPlayUi", "Mazda transition guard expired; restoring video and touch")
             retryLayout()
             requestPicture()
-            finish()
+            finish(validateDuringFade = false)
         }
     }
 
     init {
-        // Cover only the current viewport; the shell separately covers the swept left edge.
+        // Cover only the current viewport; the OEM owns the area outside the moving edge.
         parent.addView(view, parent.indexOfChild(coveredView) + 1, FrameLayout.LayoutParams(-1, -1))
     }
 
@@ -121,6 +133,7 @@ internal class MzdTransitionMask(
         settled = false
         waitingForFrame = false
         fading = false
+        fadeEnded = false
         checking = false
         readyFrames = 0
         view.alpha = 1f
@@ -175,20 +188,46 @@ internal class MzdTransitionMask(
         (view.parent as? FrameLayout)?.removeView(view)
     }
 
-    private fun finish() {
-        if (!isShowing || fading || !surfaceAvailable()) return
+    private fun finish(validateDuringFade: Boolean = true) {
+        if (!isShowing || !surfaceAvailable()) return
+        // Preserve the original bounded escape for valid dark/unreadable screens, even if
+        // a pending PixelCopy or repeated edge regression would otherwise prolong the fade.
+        if (!validateDuringFade) {
+            waitingForFrame = false
+            checking = false
+            handler.removeCallbacks(poll)
+            handler.removeCallbacks(recover)
+        }
+        if (fading) {
+            if (fadeEnded && !checking) completeFade()
+            return
+        }
         fading = true
+        fadeEnded = false
         val token = generation
-        cancelCallbacks()
-        waitingForFrame = false
+        handler.removeCallbacks(arm)
+        handler.removeCallbacks(timeout)
+        // Keep checking distinct presentations throughout the fade; do not reveal a bad
+        // edge simply because it arrived after the two presentations that started fading.
         view.animate().alpha(0f).setDuration(FADE_MILLIS).withEndAction {
             if (generation == token) {
                 if (surfaceAvailable()) {
-                    view.visibility = View.GONE
-                    view.setImageDrawable(null)
+                    fadeEnded = true
+                    // A newer presentation is still being copied. Let its result decide
+                    // whether to hide or restore the blur, rather than ignoring it as stale.
+                    if (!checking) completeFade()
                 } else surfaceChanged()
             }
         }.start()
+    }
+
+    private fun completeFade() {
+        cancelCallbacks()
+        waitingForFrame = false
+        fading = false
+        fadeEnded = false
+        view.visibility = View.GONE
+        view.setImageDrawable(null)
     }
 
     private fun cancelCallbacks() {
@@ -199,7 +238,8 @@ internal class MzdTransitionMask(
     }
 
     companion object {
-        val BACKGROUND_COLOR: Int = Color.rgb(31, 54, 73)
+        // Only used when neither the current texture nor a previous blurred frame is available.
+        val BACKGROUND_COLOR: Int = Color.rgb(32, 32, 32)
         private const val REQUIRED_READY_FRAMES = 2
         private const val VIDEO_SETTLE_MILLIS = 450L
         private const val FRAME_POLL_MILLIS = 50L

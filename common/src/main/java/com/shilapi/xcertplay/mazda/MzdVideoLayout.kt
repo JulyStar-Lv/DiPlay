@@ -11,6 +11,12 @@ internal object MzdVideoLayout {
     // scale puts the coloured band in the last ~10 source pixels. Exclude it plus a filter
     // margin, in negotiated stream pixels, rather than shifting the physical OEM panel.
     private const val NARROW_RIGHT_EDGE_GUARD_AT_1080 = 12f
+    // The 2026-10-19 recording exposes 2–3 pixels at 0.375 scale on the narrow
+    // left edge. Exclude those eight stream pixels plus the filtering neighbour.
+    private const val NARROW_LEFT_EDGE_GUARD_AT_1080 = 10f
+
+    fun leftEdgeGuard(canvasWidth: Int, area: AirPlayViewArea): Float =
+        if (area.width < canvasWidth) NARROW_LEFT_EDGE_GUARD_AT_1080 * area.height / 1080f else 0f
 
     fun rightEdgeGuard(canvasWidth: Int, area: AirPlayViewArea): Float =
         if (area.width < canvasWidth) {
@@ -29,21 +35,24 @@ internal object MzdVideoLayout {
         val physicalAreaWidth = if (area.originX > 0 && area.width < canvasWidth) 1728f
             else MzdVideoCanvas.WIDTH.toFloat()
         val areaLeft = MzdVideoCanvas.WIDTH - physicalAreaWidth
+        val leftGuard = leftEdgeGuard(canvasWidth, area)
         val scale = maxOf(physicalAreaWidth /
-            (area.width - rightEdgeGuard(canvasWidth, area)).coerceAtLeast(1f),
+            (area.width - leftGuard - rightEdgeGuard(canvasWidth, area)).coerceAtLeast(1f),
             MzdVideoCanvas.HEIGHT.toFloat() / canvasHeight)
-        return CarPlayVideoLayout(viewportWidth - MzdVideoCanvas.WIDTH + areaLeft - area.originX * scale,
+        return CarPlayVideoLayout(viewportWidth - MzdVideoCanvas.WIDTH + areaLeft - (area.originX + leftGuard) * scale,
             (MzdVideoCanvas.HEIGHT - canvasHeight * scale) / 2f,
             canvasWidth * scale, canvasHeight * scale)
     }
 
     fun cover(canvasWidth: Int, canvasHeight: Int, area: AirPlayViewArea,
         viewWidth: Int, viewHeight: Int): CarPlayVideoLayout {
-        val scale = maxOf(viewWidth.toFloat() / (area.width - rightEdgeGuard(canvasWidth, area)).coerceAtLeast(1f),
+        val leftGuard = leftEdgeGuard(canvasWidth, area)
+        val scale = maxOf(viewWidth.toFloat() /
+            (area.width - leftGuard - rightEdgeGuard(canvasWidth, area)).coerceAtLeast(1f),
             viewHeight.toFloat() / area.height)
         // Keep the driver's dock at the left edge while the sidebar moves. Any vertical overflow
         // is centred; unused stream pixels beyond the active area remain outside the viewport.
-        return CarPlayVideoLayout(-area.originX * scale,
+        return CarPlayVideoLayout(-(area.originX + leftGuard) * scale,
             (viewHeight - area.height * scale) / 2f - area.originY * scale,
             canvasWidth * scale, canvasHeight * scale)
     }

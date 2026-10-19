@@ -40,6 +40,7 @@ internal class MzdCarAppLayout(context: Context) : FrameLayout(context) {
     private var vehiclePanel = readVehiclePanel()
     private var targetBounds: Rect? = null
     private var embedded = false
+    private var coveredByProjection = false
     private var panelProgress = 0f
     private var fixedPanelProgress: Float? = null
     private val panelEasing = AccelerateDecelerateInterpolator()
@@ -53,13 +54,6 @@ internal class MzdCarAppLayout(context: Context) : FrameLayout(context) {
     private val laidOutOrigin = IntArray(2)
     private val layoutBounds = Rect()
     private val panelClip = Path()
-    private val backdropBounds = Rect()
-    private val backdropClip = Path()
-    private var coveringSweptArea = false
-    private val clearBackdrop = Runnable {
-        coveringSweptArea = false
-        invalidate()
-    }
     private val panelOutline = object : ViewOutlineProvider() {
         override fun getOutline(view: View, outline: Outline) {
             outline.setRoundRect(0, 0, view.width, view.height, PANEL_CORNER_RADIUS_PX)
@@ -127,6 +121,14 @@ internal class MzdCarAppLayout(context: Context) : FrameLayout(context) {
         addView(view, LayoutParams(-1, -1))
     }
 
+    internal fun setCoveredByProjection(covered: Boolean) {
+        if (coveredByProjection == covered) return
+        coveredByProjection = covered
+        getChildAt(0)?.visibility = if (covered) View.INVISIBLE else View.VISIBLE
+        snapToVehiclePanel()
+        requestLayout()
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         viewTreeObserver.addOnPreDrawListener(windowPositionListener)
@@ -153,7 +155,6 @@ internal class MzdCarAppLayout(context: Context) : FrameLayout(context) {
         viewTreeObserver.removeOnPreDrawListener(windowPositionListener)
         panelAnimator?.cancel()
         panelAnimator = null
-        releaseBackdrop()
         panelProgress = desiredPanelProgress()
         if (navigationReceiverRegistered) context.unregisterReceiver(navigationReceiver)
         navigationReceiverRegistered = false
@@ -188,7 +189,6 @@ internal class MzdCarAppLayout(context: Context) : FrameLayout(context) {
         val interrupted = panelAnimator?.isRunning == true || fixedPanelProgress != null
         panelAnimator?.cancel()
         panelAnimator = null
-        releaseBackdrop()
         vehiclePanel = readVehiclePanel()
         val target = desiredPanelProgress()
         if (panelProgress != target || interrupted) {
@@ -205,7 +205,7 @@ internal class MzdCarAppLayout(context: Context) : FrameLayout(context) {
         panelAnimator?.cancel()
         panelAnimator = null
         val target = desiredPanelProgress()
-        val animate = embedded && isLaidOut && isShown && windowVisibility == VISIBLE &&
+        val animate = embedded && !coveredByProjection && isLaidOut && isShown && windowVisibility == VISIBLE &&
             !(Build.VERSION.SDK_INT >= 26 && !ValueAnimator.areAnimatorsEnabled())
         val targetWidth = panelWidth(target)
         var prepared = false
@@ -215,32 +215,21 @@ internal class MzdCarAppLayout(context: Context) : FrameLayout(context) {
                 ?.beginMazdaPanelTransition(targetWidth, deferUntilPanelEnd = animate && panelProgress != target) == true
         }
         if (!animate) {
-            releaseBackdrop()
             panelProgress = target
             requestLayout()
             return
         }
         if (panelProgress == target) {
             // Reversal before the first frame cancels the animator without an end callback.
-            releaseBackdrop()
             if (interrupted) requestLayout()
             return
         }
-        // AppList and the sidebar are separate windows/processes. Matching their curve cannot
-        // synchronize their first frame: retain coverage of the swept area behind our moving edge.
-        // The OEM sidebar is a higher-layer window, so it still draws and receives input above us.
-        handler.removeCallbacks(clearBackdrop)
-        coveringSweptArea = true
         if (prepared) {
             // Prepare responsive chrome once. Its fixed video canvas remains at x=64;
             // only our crop moves, with no buffer resize or transform on the final frame.
             fixedPanelProgress = target
             requestLayout()
         }
-        // Read the provider before starting, never inside the final animation frame.
-        val scale = Settings.Global.getFloat(context.contentResolver,
-            Settings.Global.ANIMATOR_DURATION_SCALE, 1f).takeIf { it.isFinite() } ?: 1f
-        val backdropDelay = (PANEL_TRANSITION_MILLIS * scale.coerceAtLeast(0f)).roundToLong()
         // Launcher AppList's applist_bg_scene.xml inherits 400 ms and interpolator 0 from
         // its bundled MotionScene. MotionLayout eases persistent linear 0..1 progress.
         // Continue that progress on reversal instead of easing a new pixel-distance segment:
@@ -261,9 +250,6 @@ internal class MzdCarAppLayout(context: Context) : FrameLayout(context) {
                 override fun onAnimationEnd(animation: Animator) {
                     if (cancelled) return
                     finishLayerTransition(targetWidth)
-                    // Give the independent background window one complete transition to settle.
-                    // Respect the device animation scale, including slow accessibility animations.
-                    handler.postDelayed(clearBackdrop, backdropDelay)
                 }
             })
             start()
@@ -288,7 +274,6 @@ internal class MzdCarAppLayout(context: Context) : FrameLayout(context) {
         if (!cockpit) {
             panelAnimator?.cancel()
             panelAnimator = null
-            releaseBackdrop()
         }
         if (panelAnimator?.isRunning != true) panelProgress = desiredPanelProgress()
         val panelRight = PANEL_WIDTH_PX - if (passengerPanel) PASSENGER_PANEL_MARGIN_PX else 0
@@ -318,6 +303,7 @@ internal class MzdCarAppLayout(context: Context) : FrameLayout(context) {
             clipToOutline = embedded && context !is com.shilapi.xcertplay.CarPlayHostActivity
         }
         updatePanelDrawing()
+        MzdIntegration.updateWindowLayers()
     }
 
     private fun updatePanelDrawing() {
@@ -327,14 +313,6 @@ internal class MzdCarAppLayout(context: Context) : FrameLayout(context) {
             layoutBounds.left = panelLeft - windowOrigin[0]
         }
         val bounds = layoutBounds
-        backdropBounds.set(bounds)
-        if (embedded && !passengerPanel) {
-            backdropBounds.left = FULL_PANEL_LEFT_PX - windowOrigin[0]
-        }
-        backdropClip.rewind()
-        backdropClip.addRoundRect(backdropBounds.left.toFloat(), backdropBounds.top.toFloat(),
-            backdropBounds.right.toFloat(), backdropBounds.bottom.toFloat(),
-            PANEL_CORNER_RADIUS_PX, PANEL_CORNER_RADIUS_PX, Path.Direction.CW)
         panelClip.rewind()
         panelClip.addRoundRect(bounds.left.toFloat(), bounds.top.toFloat(), bounds.right.toFloat(),
             bounds.bottom.toFloat(), PANEL_CORNER_RADIUS_PX, PANEL_CORNER_RADIUS_PX, Path.Direction.CW)
@@ -342,15 +320,6 @@ internal class MzdCarAppLayout(context: Context) : FrameLayout(context) {
     }
 
     override fun dispatchDraw(canvas: Canvas) {
-        if (coveringSweptArea && embedded && !passengerPanel) {
-            val save = canvas.save()
-            canvas.clipPath(backdropClip)
-            // The independent OEM sidebar may lag. Cover only the exposed swept strip with a
-            // neutral colour, never a captured CarPlay dock or wallpaper outside its viewport.
-            canvas.clipRect(backdropBounds.left, backdropBounds.top, layoutBounds.left, backdropBounds.bottom)
-            canvas.drawColor(MzdTransitionMask.BACKGROUND_COLOR)
-            canvas.restoreToCount(save)
-        }
         if (!embedded) {
             super.dispatchDraw(canvas)
             return
@@ -361,12 +330,6 @@ internal class MzdCarAppLayout(context: Context) : FrameLayout(context) {
         canvas.clipPath(panelClip)
         super.dispatchDraw(canvas)
         canvas.restoreToCount(save)
-    }
-
-    private fun releaseBackdrop() {
-        handler.removeCallbacks(clearBackdrop)
-        coveringSweptArea = false
-        invalidate()
     }
 
     private fun readVehiclePanel(): Boolean = try {
@@ -403,10 +366,9 @@ internal class MzdCarAppLayout(context: Context) : FrameLayout(context) {
                     isNavigationBarContrastEnforced = !cockpit
                 }
             }
-            // A transparent drawable alone still lets the system hide the launcher's task and wallpaper.
-            if (cockpit && Build.VERSION.SDK_INT >= 30 && !activity.isFinishing && activity.setTranslucent(true)) {
-                Log.i("DiPlayUi", "cockpit window converted to translucent")
-            }
+            // Match the OEM scene app: transparent pixels inside an opaque Activity window.
+            // Converting the Activity to translucent also keeps AppList visible behind the
+            // moving panel crop, outside both the video and its blur fallback.
             if (cockpit) androidx.core.view.WindowCompat.setDecorFitsSystemWindows(activity.window, false)
             return cockpit
         }

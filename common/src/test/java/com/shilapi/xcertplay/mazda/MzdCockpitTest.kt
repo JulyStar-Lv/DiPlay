@@ -3,7 +3,9 @@ package com.shilapi.xcertplay.mazda
 import android.app.Activity
 import android.animation.ValueAnimator
 import android.content.Intent
+import android.graphics.Color
 import android.graphics.Rect
+import android.graphics.drawable.ColorDrawable
 import android.os.Looper
 import android.provider.Settings
 import android.view.View
@@ -23,6 +25,33 @@ import org.robolectric.util.ReflectionHelpers
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], manifest = Config.NONE)
 class MzdCockpitTest {
+    class CockpitWindowActivity : Activity() {
+        var exposesLowerActivities = false
+        override fun setTranslucent(translucent: Boolean): Boolean {
+            exposesLowerActivities = translucent
+            return true
+        }
+    }
+
+    @Config(qualifiers = "w5120dp-h1440dp-mdpi")
+    @Test fun transparentCockpitMarginsNeverEnableActivityStackTranslucency() {
+        val controller = Robolectric.buildActivity(CockpitWindowActivity::class.java).setup()
+        try {
+            val activity = controller.get()
+            // Home/Host can reapply these colors after a UI-mode or configuration change.
+            // A transparent Drawable must never also reveal the Activity stack under the crop.
+            repeat(3) {
+                assertTrue(MzdCarAppLayout.applyWindowBackground(activity))
+                assertEquals(Color.TRANSPARENT, (activity.window.decorView.background as ColorDrawable).color)
+                assertEquals(Color.TRANSPARENT, activity.window.statusBarColor)
+                assertEquals(Color.TRANSPARENT, activity.window.navigationBarColor)
+                assertFalse(activity.window.isNavigationBarContrastEnforced)
+                assertFalse("AppList must not be made visible behind the cockpit margins",
+                    activity.exposesLowerActivities)
+            }
+        } finally { controller.pause().stop().destroy() }
+    }
+
     private fun windowVisibility(view: View, visibility: Int) {
         // Robolectric leaves AttachInfo at GONE even after ActivityController.visible().
         // Android updates it before dispatching this callback from ViewRootImpl.

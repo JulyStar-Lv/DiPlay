@@ -75,4 +75,50 @@ class MzdVideoEdgeTest {
             assertEquals(2496f / (width - 2), content.width / width, .00001f)
         }
     }
+
+    @Test fun leftBlackStripIsExcludedFromFixedVideoBlurAndTouchAtBothEndpoints() {
+        RuntimeEnvironment.setFontScale(1.5f)
+        for (divisor in listOf(1, 2)) {
+            val width = 2496 / divisor
+            val height = 1080 / divisor
+            val area = AirPlayViewArea(1728 / divisor, height, 768 / divisor)
+            val source = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            val picture = Color.rgb(31, 94, 146)
+            source.eraseColor(Color.BLACK)
+            Canvas(source).drawRect((area.originX + 8 / divisor).toFloat(), 0f,
+                (area.originX + area.width - 10 / divisor).toFloat(), height.toFloat(),
+                Paint().apply { color = picture })
+            try {
+                val blur = requireNotNull(MzdTransitionPicture.blur(source, width, height, area))
+                try {
+                    for (x in 0 until blur.width) assertEquals(picture, blur.getPixel(x, blur.height / 2))
+                } finally { blur.recycle() }
+                for (viewportWidth in listOf(1728, 2496)) {
+                    val content = MzdVideoLayout.fixedCanvas(width, height, area, viewportWidth)
+                    val matrix = Matrix().apply {
+                        setScale(content.width / width, content.height / height)
+                        postTranslate(content.left, content.top)
+                    }
+                    val rendered = Bitmap.createBitmap(viewportWidth, 1080, Bitmap.Config.ARGB_8888)
+                    try {
+                        Canvas(rendered).drawBitmap(source, matrix, Paint(Paint.FILTER_BITMAP_FLAG))
+                        // The active narrow area is right anchored behind the moving crop.
+                        val left = viewportWidth - 1728
+                        for (x in maxOf(0, left) until viewportWidth) assertEquals(
+                            "No left/right padding at $viewportWidth/$divisor/$x", picture, rendered.getPixel(x, 540))
+                        val event = android.view.MotionEvent.obtain(0, 0, android.view.MotionEvent.ACTION_DOWN,
+                            left + 864f, 540f, 0)
+                        try {
+                            val contact = com.shilapi.xcertplay.media.CarPlayTouchMapper.contacts(event, content).single()
+                            assertEquals((768.0 + 10 + (1728 - 10 - 12) / 2.0) / 2496, contact.x, .0001)
+                            assertEquals(.5, contact.y, .0001)
+                        } finally { event.recycle() }
+                        val file = File("build/reports/mazda-ui/video-left-edge-$viewportWidth-$divisor-large-font.png")
+                        file.parentFile?.mkdirs()
+                        file.outputStream().use { rendered.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                    } finally { rendered.recycle() }
+                }
+            } finally { source.recycle() }
+        }
+    }
 }

@@ -13,7 +13,8 @@ internal object MzdTransitionPicture {
         if (!MzdTransitionFrame.matchesArea(source, canvasWidth, canvasHeight, area)) return null
         val sx = source.width.toFloat() / canvasWidth
         val sy = source.height.toFloat() / canvasHeight
-        val crop = Rect((area.originX * sx).roundToInt(), (area.originY * sy).roundToInt(),
+        val crop = Rect(((area.originX + MzdVideoLayout.leftEdgeGuard(canvasWidth, area)) * sx).roundToInt(),
+            (area.originY * sy).roundToInt(),
             ((area.originX + area.width - MzdVideoLayout.rightEdgeGuard(canvasWidth, area)) * sx).toInt(),
             ((area.originY + area.height) * sy).roundToInt())
         if (crop.width() <= 0 || crop.height() <= 0) return null

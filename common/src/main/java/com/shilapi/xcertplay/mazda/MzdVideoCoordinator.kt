@@ -12,6 +12,7 @@ import android.widget.ImageView
 import com.shilapi.xcertplay.CarPlayBackgroundSession
 import com.shilapi.xcertplay.CarPlaySessionDisplay
 import com.shilapi.xcertplay.CarPlayViewAreas
+import com.shilapi.xcertplay.airplay.AirPlayViewArea
 import com.shilapi.xcertplay.media.AndroidMediaSink
 
 /** Owns Mazda's transition and return-picture policy; the host supplies its current video state. */
@@ -31,6 +32,7 @@ internal class MzdVideoCoordinator(
     private var mask: MzdTransitionMask? = null
     private var movingTo: Int? = null
     private var generation = 0
+    private var lastBlur: Bitmap? = null
     val isTransitionShowing: Boolean get() = mask?.isShowing == true
     val isPanelMoving: Boolean get() = movingTo != null
 
@@ -53,12 +55,17 @@ internal class MzdVideoCoordinator(
         movingTo = if (deferUntilPanelEnd) targetWidth else null
         val token = ++generation
         val oldArea = current.display.viewAreas?.let { it.layoutArea(it.current) }
+        val hadPicture = transition.hasPicture
+        // PixelCopy is asynchronous. Prepare a small, already blurred visible picture before
+        // exposing the guard, so its first frame does not flash a solid background.
+        val immediatePicture = if (hadPicture) null else texturePicture(current) ?: lastBlur
         transition.begin(targetWidth)
-        if (!transition.hasPicture && oldArea != null) {
+        immediatePicture?.let(transition::showPicture)
+        if (!hadPicture && oldArea != null) {
             copyCanvas(current) { frame ->
                 val picture = if (generation == token && mask === transition && transition.isShowing)
                     MzdTransitionPicture.blur(frame, current.display.width, current.display.height, oldArea) else null
-                picture?.let(transition::showPicture)
+                picture?.let { lastBlur = it; transition.showPicture(it) }
             }
         }
         // The target is known before the first animated resize. Negotiate it under the mask,
@@ -104,7 +111,27 @@ internal class MzdVideoCoordinator(
         if (current != null) mask?.surfaceChanged(current.output is TextureView)
         else mask?.surfaceChanged()
     }
-    fun dispose() { ++generation; mask?.dispose(); mask = null; movingTo = null }
+    fun dispose() { ++generation; mask?.dispose(); mask = null; movingTo = null; lastBlur = null }
+
+    private fun texturePicture(current: State): Bitmap? {
+        val texture = current.output as? TextureView ?: return null
+        if (!texture.isAvailable || texture.width <= 0 || texture.height <= 0) return null
+        val width = MzdTransitionFrame.CAPTURE_WIDTH
+        val height = (width * texture.height / texture.width).coerceAtLeast(1)
+        val frame = runCatching { texture.getBitmap(width, height) }.getOrNull() ?: return null
+        // getBitmap contains the TextureView transform. Crop its visible right-hand viewport,
+        // not the negotiated raw area; frame readiness still uses raw PixelCopy below.
+        val viewportWidth = (frame.width.toLong() * current.panelWidth / texture.width)
+            .toInt().coerceIn(1, frame.width)
+        val visible = Bitmap.createBitmap(frame, frame.width - viewportWidth, 0, viewportWidth, frame.height)
+        return try {
+            MzdTransitionPicture.blur(visible, visible.width, visible.height,
+                AirPlayViewArea(visible.width, visible.height))?.also { lastBlur = it }
+        } finally {
+            if (visible !== frame) visible.recycle()
+            frame.recycle()
+        }
+    }
 
     private fun copyCanvas(current: State, copied: (Bitmap) -> Unit) {
         val source = current.surface?.takeIf { it.isValid } ?: return
@@ -148,6 +175,7 @@ internal class MzdVideoCoordinator(
                 val ready = result == PixelCopy.SUCCESS && latest != null && latest.surface === source &&
                     latest.output === output && latest.display?.viewAreas === areas && areas.current == index &&
                     runCatching { MzdTransitionFrame.matchesArea(bitmap, display.width, display.height, area) }.getOrDefault(false)
+                if (ready) MzdTransitionPicture.blur(bitmap, display.width, display.height, area)?.let { lastBlur = it }
                 bitmap.recycle()
                 checked(ready)
             }, handler)

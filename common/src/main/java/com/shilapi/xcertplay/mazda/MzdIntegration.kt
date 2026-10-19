@@ -1,25 +1,75 @@
 package com.shilapi.xcertplay.mazda
 
 import android.app.Activity
+import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
 import android.view.View
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.CarPlayHostActivity
 import java.util.WeakHashMap
+import java.lang.ref.WeakReference
 
 internal object MzdIntegration {
-    private val windows = WeakHashMap<Activity, Unit>()
+    private class PanelWindow(layout: MzdCarAppLayout) {
+        val layout = WeakReference(layout)
+        var started = false
+        var resumedOrder = 0L
+    }
+    private val windows = WeakHashMap<Activity, PanelWindow>()
+    private val applications = WeakHashMap<Application, Unit>()
+    private var resumedOrder = 0L
+    private val windowLifecycle = object : Application.ActivityLifecycleCallbacks {
+        override fun onActivityResumed(activity: Activity) {
+            windows[activity]?.apply { started = true; resumedOrder = ++this@MzdIntegration.resumedOrder }
+            updateWindowLayers()
+        }
+        override fun onActivityStopped(activity: Activity) {
+            windows[activity]?.started = false
+            updateWindowLayers()
+        }
+        override fun onActivityDestroyed(activity: Activity) {
+            windows.remove(activity)
+            updateWindowLayers()
+        }
+        override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
+        override fun onActivityStarted(activity: Activity) = Unit
+        override fun onActivityPaused(activity: Activity) = Unit
+        override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+    }
 
     fun enabled(context: Context) = context.resources.getBoolean(R.bool.config_mazda)
 
     fun wrap(activity: Activity, content: View): View {
         if (!enabled(activity)) return content
-        windows[activity] = Unit
-        return MzdCarAppLayout(activity).apply { setPanelContent(content) }
+        val application = activity.application
+        if (applications.put(application, Unit) == null) application.registerActivityLifecycleCallbacks(windowLifecycle)
+        return MzdCarAppLayout(activity).apply {
+            setPanelContent(content)
+            val previous = windows[activity]
+            windows[activity] = PanelWindow(this).also {
+                it.started = previous?.started ?: false
+                it.resumedOrder = previous?.resumedOrder ?: 0L
+            }
+            updateWindowLayers()
+        }
+    }
+
+    internal fun updateWindowLayers() {
+        // Both Activities can remain in the OEM task for screen transfers. Their
+        // independent animators can differ by a frame and expose the home's white background.
+        // Hide only the covered page, retaining the projection Surface and background session.
+        windows.forEach { (activity, window) ->
+            val covered = activity !is CarPlayHostActivity && cockpit(activity) && windows.any { (other, above) ->
+                other is CarPlayHostActivity && !other.isFinishing && cockpit(other) && above.started &&
+                    above.resumedOrder > window.resumedOrder && homeArea(other) == homeArea(activity)
+            }
+            window.layout.get()?.setCoveredByProjection(covered)
+        }
     }
 
     fun closeWindows() {
