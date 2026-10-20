@@ -4,28 +4,35 @@ import android.graphics.Bitmap
 import android.graphics.SurfaceTexture
 import android.graphics.drawable.BitmapDrawable
 import android.os.Handler
+import android.os.Looper
 import android.view.TextureView
 import android.view.SurfaceView
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.ImageView
 import com.shilapi.xcertplay.CarPlayBackgroundSession
+import com.shilapi.xcertplay.CarPlayDock
 import com.shilapi.xcertplay.CarPlayHostActivity
 import com.shilapi.xcertplay.CarPlaySessionDisplay
+import com.shilapi.xcertplay.CarPlayViewAreas
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.AndroidMediaSink
 import com.shilapi.xcertplay.media.CarPlayNowPlaying
 import com.shilapi.xcertplay.orchestration.CarPlayController
 import java.util.concurrent.ExecutorService
+import java.time.Duration
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.Mockito.mock
+import org.mockito.Mockito.verify
+import org.mockito.Mockito.times
 import org.mockito.Mockito.`when`
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.LooperMode
 import org.robolectric.util.ReflectionHelpers
@@ -171,15 +178,73 @@ class MzdReturnPictureTest {
         assertFalse(CarPlayBackgroundSession.isStopping())
     }
 
-    private fun host() = Robolectric.buildActivity(CarPlayHostActivity::class.java).get().apply {
+    @Test @Config(qualifiers = "w5120dp-h1440dp-mdpi")
+    fun reopenedFullPanelResynchronizesTheRetainedNarrowAreaEvenWhenItsSizeHasNotChanged() {
+        assertReopenedPanelResynchronizes(2496, retainedNarrow = true)
+    }
+
+    @Test @Config(qualifiers = "w5120dp-h1440dp-mdpi")
+    fun reopenedNarrowPanelResynchronizesTheRetainedFullAreaEvenWhenItsSizeHasNotChanged() {
+        assertReopenedPanelResynchronizes(1728, retainedNarrow = false)
+    }
+
+    private fun assertReopenedPanelResynchronizes(panelWidth: Int, retainedNarrow: Boolean) {
+        val old = host()
+        val areas = MzdViewAreas.build(2496, 1080, CarPlayDock.AUTOMATIC, narrow = retainedNarrow)
+        // The snapshot keeps the startup window size, while the same area list changes as
+        // the driver opens the OEM sidebar and then leaves DiPlay for the launcher.
+        CarPlayBackgroundSession.store(controller, sink, panelWidth, 1080, old,
+            display.copy(rotation = invoke(old, "displayRotation") as Int,
+                windowWidth = panelWidth, viewAreas = areas)) { stops++; it() }
+        val retained = areas.current
+        `when`(controller.showViewArea(org.mockito.ArgumentMatchers.anyInt())).thenReturn(true)
+
+        val reopened = host(panelWidth)
+        ReflectionHelpers.setField(reopened, "hideTopBar", display.hideTopBar)
+        ReflectionHelpers.setField(reopened, "hideBottomBar", display.hideBottomBar)
+        assertEquals(true, invoke(reopened, "adoptBackgroundSession"))
+        val sizeClass = Class.forName("com.shilapi.xcertplay.CarPlayHostActivity\$DisplaySize")
+        val active = ReflectionHelpers.getField<Any>(reopened, "activeDisplaySize")
+        assertEquals(retained, areas.current)
+        assertFalse("Same window layout must exercise the same-size shortcut",
+            ReflectionHelpers.callInstanceMethod<Boolean>(reopened, "displayLayoutChanged",
+                ReflectionHelpers.ClassParameter.from(sizeClass, active)))
+        assertNull(ReflectionHelpers.getField<MzdVideoCoordinator?>(reopened, "mazdaVideo"))
+        // Both panel shapes have the same full-size TextureView and decoder buffers.
+        assertEquals(2496, video(reopened).width)
+        assertEquals(panelWidth, (video(reopened).parent as MzdVideoCanvas).width)
+        ReflectionHelpers.callInstanceMethod<Void>(reopened, "scheduleDisplaySize",
+            ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType, 2496),
+            ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType, 1080))
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(50))
+
+        val target = requireNotNull(areas.index(if (panelWidth == 1728)
+            CarPlayViewAreas.Kind.SPLIT_SCREEN else CarPlayViewAreas.Kind.FULL_SCREEN, null))
+        assertEquals(target, areas.current)
+        ReflectionHelpers.callInstanceMethod<Void>(reopened, "scheduleDisplaySize",
+            ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType, 2496),
+            ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType, 1080))
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(50))
+        verify(controller, times(1)).showViewArea(target)
+        assertSame(controller, CarPlayBackgroundSession.snapshot()!!.controller)
+        assertSame(sink, CarPlayBackgroundSession.snapshot()!!.sink)
+        assertEquals(0, stops)
+        assertEquals(0, ReflectionHelpers.getField<Int>(reopened, "restartGeneration"))
+    }
+
+    private fun host(panelWidth: Int? = null) = Robolectric.buildActivity(CarPlayHostActivity::class.java).get().apply {
         hosts.add(this)
         setTheme(R.style.Theme_Xcertplay)
         val output = CapturedTexture(this)
-        val viewport = FrameLayout(this).apply {
-            addView(output, FrameLayout.LayoutParams(-1, -1))
-        }
+        val viewport = if (panelWidth == null) FrameLayout(this) else MzdVideoCanvas(this)
+        viewport.addView(output, FrameLayout.LayoutParams(-1, -1))
         setContentView(MzdIntegration.wrap(this, viewport))
-        output.layout(0, 0, 2496, 1080)
+        if (panelWidth == null) output.layout(0, 0, 2496, 1080)
+        else {
+            viewport.measure(View.MeasureSpec.makeMeasureSpec(panelWidth, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY))
+            viewport.layout(0, 0, panelWidth, 1080)
+        }
         ReflectionHelpers.setField(this, "videoView", output)
         ReflectionHelpers.setField(this, "sink", sink)
     }

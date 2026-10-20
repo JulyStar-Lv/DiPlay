@@ -5759,7 +5759,10 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         if (size == pendingDisplaySize) return
         mainHandler.removeCallbacks(applyDisplaySize)
-        if (size == activeDisplaySize && !displayLayoutChanged() && (mazdaVideo?.areaMatches(size.width, size.height) != false)) {
+        // A retained session remembers its startup window size, but its area can have
+        // changed since then. A reopened Mazda host has no transition coordinator yet.
+        val areaMatches = sidePanelShown || mazdaVideoIntegration()?.areaMatches(width, height) != false
+        if (size == activeDisplaySize && !displayLayoutChanged() && areaMatches) {
             pendingDisplaySize = null
             mazdaVideo?.settle(size.width, size.height)
             // A rotation back can cancel the last pending resize after teardown has finished.

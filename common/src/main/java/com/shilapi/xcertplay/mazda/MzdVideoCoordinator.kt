@@ -85,9 +85,9 @@ internal class MzdVideoCoordinator(
     }
 
     fun areaMatches(width: Int, height: Int): Boolean {
-        if (!isTransitionShowing || !MzdIntegration.cockpit(activity) ||
+        if (!MzdIntegration.cockpit(activity) ||
             !MzdVideoLayout.isSettledPanel(width, height)) return true
-        val areas = state()?.display?.viewAreas ?: return false
+        val areas = state()?.display?.viewAreas ?: return !isTransitionShowing
         val kind = if (MzdViewAreas.isNarrow(width, height)) CarPlayViewAreas.Kind.SPLIT_SCREEN
             else CarPlayViewAreas.Kind.FULL_SCREEN
         return areas.kindOf(areas.current) == kind
