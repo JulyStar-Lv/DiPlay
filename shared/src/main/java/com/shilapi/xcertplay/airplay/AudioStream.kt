@@ -32,7 +32,7 @@ data class AudioFormat(
  * (timestamp + SSRC) are the AEAD associated data.
  */
 class AudioStream(
-    private val key: ByteArray,
+    key: ByteArray,
     private val streamType: Int = -1,
     private val onDiagnostic: (String) -> Unit = {},
 ) : Closeable {
@@ -51,6 +51,7 @@ class AudioStream(
     private val receivedPackets = AtomicInteger()
     private val decryptedPackets = AtomicInteger()
     private val authenticationFailures = AtomicInteger()
+    private val packetOpener = AudioPacketOpener(key)
     private var dataSocket: DatagramSocket? = null
     private var controlSocket: DatagramSocket? = null
     private var dataThread: Thread? = null
@@ -93,10 +94,12 @@ class AudioStream(
         runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO) }
         val stats = StreamReceiveStats("audio type=$streamType", onDiagnostic)
         val buffer = ByteArray(DATAGRAM_BYTES)
+        val packet = DatagramPacket(buffer, buffer.size)
         try {
             while (!closed.get()) {
-                val packet = DatagramPacket(buffer, buffer.size)
                 try {
+                    // receive() replaces length with the previous datagram's size.
+                    packet.length = buffer.size
                     stats.reading()
                     socket.receive(packet)
                 } catch (_: Exception) {
@@ -128,15 +131,13 @@ class AudioStream(
                     continue
                 }
 
-                val aad = wire.copyOfRange(4, RTP_HEADER_LEN)
-                val sealedEnd = wire.size - NONCE_LEN
-                val sealed = wire.copyOfRange(RTP_HEADER_LEN, sealedEnd)
-                val shortNonce = wire.copyOfRange(sealedEnd, wire.size)
-                val nonce = ByteArray(12).also { shortNonce.copyInto(it, 4) }
                 val sample = readU32Be(wire, 4)
 
-                val payload = try {
-                    AirPlayCrypto.chachaOpen(key, nonce, sealed, aad)
+                val decryptStart = System.nanoTime()
+                val rtp = try {
+                    packetOpener.open(wire).also {
+                        stats.decrypted(System.nanoTime() - decryptStart, wire.size - RTP_HEADER_LEN - NONCE_LEN)
+                    }
                 } catch (error: Exception) {
                     val failureNumber = authenticationFailures.incrementAndGet()
                     if (failureNumber == 1) {
@@ -151,14 +152,14 @@ class AudioStream(
                     stats.processed()
                     continue
                 }
-                val rtp = wire.copyOf(RTP_HEADER_LEN) + payload
                 val decryptedNumber = decryptedPackets.incrementAndGet()
                 if (decryptedNumber <= FIRST_PACKET_LOG_COUNT) {
                     android.util.Log.i(
                         TAG,
                         "audio stream type=$streamType packet=$decryptedNumber sample=$sample " +
-                            "wireBytes=${wire.size} payloadBytes=${payload.size} " +
-                            "payloadHead=${payload.copyOf(minOf(payload.size, 16)).toHexString()}",
+                            "wireBytes=${wire.size} payloadBytes=${rtp.size - RTP_HEADER_LEN} " +
+                            "payloadHead=${rtp.copyOfRange(RTP_HEADER_LEN, minOf(rtp.size, RTP_HEADER_LEN + 16)).toHexString()} " +
+                            "chacha=${AirPlayCrypto.chachaImplementation}",
                     )
                 } else if (decryptedNumber % PACKET_LOG_INTERVAL == 0) {
                     android.util.Log.i(

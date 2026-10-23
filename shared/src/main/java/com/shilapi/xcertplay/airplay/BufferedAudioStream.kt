@@ -33,6 +33,7 @@ internal class BufferedAudioStream(
     internal class Frame(val sequence: Int, val timestamp: Long, val rtp: ByteArray)
 
     private val id = AudioStreamId(format.payloadType, format.audioType)
+    private val packetOpener = AudioPacketOpener(key)
     private val closed = AtomicBoolean(false)
     private val started = AtomicBoolean(false)
     private var cleanupStarted = false // guarded by lock; permits reentrant close without recursion
@@ -94,7 +95,7 @@ internal class BufferedAudioStream(
                 }
                 val body = ByteArray(length - LENGTH_BYTES)
                 input.readFully(body)
-                val frame = open(key, body)
+                val frame = open(packetOpener, body)
                 if (frame == null) {
                     if (failures++ < 3) log("Buffered audio: frame did not open (${body.size} bytes)")
                     continue
@@ -355,18 +356,16 @@ internal class BufferedAudioStream(
          * One buffered frame: RTP header, ChaCha20-Poly1305 ciphertext and tag sealed with [key] (the
          * header's timestamp and SSRC as associated data), then an 8-byte nonce. Null when it does not open.
          */
-        internal fun open(key: ByteArray, body: ByteArray): Frame? {
+        internal fun open(key: ByteArray, body: ByteArray): Frame? = open(AudioPacketOpener(key), body)
+
+        private fun open(opener: AudioPacketOpener, body: ByteArray): Frame? {
             if (body.size < RTP_HEADER + TAG_BYTES + NONCE_BYTES) return null
             // This wire format has exactly a 12-byte RTP v2 header; extensions, padding and CSRCs
             // cannot be interpreted as ciphertext or passed to the AAC renderer.
             if ((body[0].toInt() and 0xff) != 0x80) return null
-            val sealedEnd = body.size - NONCE_BYTES
-            val nonce = ByteArray(12).also { body.copyInto(it, 4, sealedEnd, body.size) }
-            val payload = runCatching {
-                AirPlayCrypto.chachaOpen(key, nonce, body.copyOfRange(RTP_HEADER, sealedEnd), body.copyOfRange(4, RTP_HEADER))
-            }.getOrNull() ?: return null
+            val rtp = runCatching { opener.open(body) }.getOrNull() ?: return null
             val sequence = ((body[2].toInt() and 0xff) shl 8) or (body[3].toInt() and 0xff)
-            return Frame(sequence, u32(body, 4), body.copyOf(RTP_HEADER) + payload)
+            return Frame(sequence, u32(body, 4), rtp)
         }
 
         /**

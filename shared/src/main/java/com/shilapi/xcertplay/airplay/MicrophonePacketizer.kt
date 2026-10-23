@@ -75,31 +75,38 @@ object MicrophonePacketizer {
         counters: MicrophoneCounters,
         body: ByteArray,
         samples: Int,
-    ): ByteArray {
-        val header = ByteArray(RTP_HEADER_LEN)
-        header[0] = 0x80.toByte()
-        header[1] = (payloadType and 0x7f).toByte()
-        putU16Be(header, 2, counters.sequence)
-        putU32Be(header, 4, counters.timestamp)
+    ): ByteArray = Sealer(key).sealPacket(payloadType, counters, body, samples)
 
-        val nonce = ByteArray(12)
-        putU64Le(nonce, 4, counters.nonce)
-        val sealed = AirPlayCrypto.chachaSeal(
-            key = key,
-            nonce = nonce,
-            plaintext = body,
-            aad = header.copyOfRange(4, RTP_HEADER_LEN),
-        )
+    /** One capture thread reuses the key and nonce scratch space, never a packet handed to UDP. */
+    internal class Sealer(key: ByteArray) {
+        private val cipher = AirPlayCrypto.PacketCipher(key)
+        private val nonce = ByteArray(12)
 
-        val packet = ByteArray(RTP_HEADER_LEN + sealed.size + NONCE_LEN)
-        header.copyInto(packet, 0)
-        sealed.copyInto(packet, RTP_HEADER_LEN)
-        putU64Le(packet, RTP_HEADER_LEN + sealed.size, counters.nonce)
-
-        counters.sequence = (counters.sequence + 1) and 0xffff
-        counters.timestamp += samples
-        counters.nonce++
-        return packet
+        fun sealPacket(payloadType: Int, counters: MicrophoneCounters, body: ByteArray, samples: Int): ByteArray {
+            val packet = ByteArray(RTP_HEADER_LEN + body.size + TAG_LEN + NONCE_LEN)
+            packet[0] = 0x80.toByte()
+            packet[1] = (payloadType and 0x7f).toByte()
+            putU16Be(packet, 2, counters.sequence)
+            putU32Be(packet, 4, counters.timestamp)
+            putU64Le(nonce, 4, counters.nonce)
+            cipher.cryptInto(
+                encrypt = true,
+                nonce = nonce,
+                input = body,
+                inputOffset = 0,
+                inputLength = body.size,
+                aad = packet,
+                aadOffset = 4,
+                aadLength = RTP_HEADER_LEN - 4,
+                output = packet,
+                outputOffset = RTP_HEADER_LEN,
+            )
+            putU64Le(packet, packet.size - NONCE_LEN, counters.nonce)
+            counters.sequence = (counters.sequence + 1) and 0xffff
+            counters.timestamp += samples
+            counters.nonce++
+            return packet
+        }
     }
 
     /** Captured Android PCM is little-endian; CarPlay's wired microphone payload is big-endian. */
