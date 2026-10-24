@@ -76,6 +76,12 @@ class AudioCodecOutputReleaseTest {
         set("playbackStarted", true)
         try {
             type.getDeclaredMethod("drainCodec", MediaCodec::class.java).apply { isAccessible = true }.invoke(renderer, codec)
+            assertEquals(listOf("copy", "release"), OutputCodec.events)
+            assertNull("decoder must not write to AudioTrack", OutputTrack.written)
+            val pcmQueue = type.getDeclaredField("pcmQueue").apply { isAccessible = true }.get(renderer) as AudioPcmQueue
+            val owned = pcmQueue.poll(0)!!
+            type.getDeclaredMethod("writePcm", ByteArray::class.java, Int::class.javaPrimitiveType,
+                Int::class.javaPrimitiveType).apply { isAccessible = true }.invoke(renderer, owned, 0, owned.size)
             assertFalse("expected injected failure", failCopy || failWrite)
         } catch (error: InvocationTargetException) {
             assertTrue(error.cause is IllegalStateException && (failCopy || failWrite))

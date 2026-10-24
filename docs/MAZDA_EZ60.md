@@ -86,14 +86,20 @@ from Settings. Existing saved preferences, including those retained when replaci
 are preserved. Clearing application data initializes the defaults again. Both classes live in
 `common/src/main/java/com/shilapi/xcertplay/mazda/`; other applications retain their defaults.
 
-Mazda defaults to Wi-Fi Direct (`WIFI_P2P`) when `wireless_hotspot_mode` is absent, before
-any Activity reads the shared car-hotspot fallback. This also fills an absent key on an
-already-initialized Mazda installation. Saved Car hotspot, Wi-Fi Direct and existing Wi-Fi
-choices are preserved; other applications keep the upstream Car hotspot default.
+Mazda leaves `wireless_hotspot_mode` unset when absent, using the shared Car hotspot
+fallback. Saved Car hotspot, Wi-Fi Direct and existing Wi-Fi choices are preserved.
 
-Mazda also enables buffered music (experimental) when `main_buffered_audio` is absent,
-including upgrades initialized by older builds. Saved on/off choices are preserved. The
-existing setting still controls it, and the default applies at the next CarPlay connection.
+Mazda also leaves `main_buffered_audio` unset when absent, so buffered music (experimental)
+uses the shared disabled fallback. A missing wireless music buffer is initialized to 1000 ms,
+while the wired buffer retains its saved value or the shared 300 ms default. Existing wireless
+and legacy shared buffer values are preserved.
+
+When `disable_media_key_audio_focus` is absent, Mazda initializes it to true. MTK decoder
+tuning also remains enabled by default. These missing preferences are filled before the
+initialization guard, including upgrades initialized by older builds; saved choices, including
+explicitly disabled switches, are preserved. The defaults apply at the next CarPlay connection.
+The media-key audio-focus default is seeded only in `MzdDefaults`; the shared fallback stays
+disabled, and the settings Activity is unchanged.
 
 The Mazda application overrides `raw/ic_car_home.png` with the Mazda logo from the reference
 project. The original CarPlay icon loader uses this resource without modification; custom icons

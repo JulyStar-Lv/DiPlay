@@ -15,6 +15,34 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28, 31], manifest = Config.NONE)
 class AudioStreamReceiveTest {
+    @Test fun negotiatedRedUdpDeliversRecoveredAndPrimaryRtpAndSurvivesABadDatagram() {
+        val packets = CopyOnWriteArrayList<ByteArray>()
+        val started = CopyOnWriteArrayList<Int>()
+        val errors = CopyOnWriteArrayList<Throwable>()
+        val received = CountDownLatch(2)
+        val stream = AudioStream(ByteArray(32) { it.toByte() }, 100, redundancy = true)
+        val port = stream.listen(object : AudioStream.Listener {
+            override fun onStarted(firstSample: Int) { started += firstSample }
+            override fun onRtp(rtp: ByteArray, sample: Int) { packets += rtp; received.countDown() }
+            override fun onPacket(wire: ByteArray, rtp: ByteArray?, sample: Int?, error: Throwable?) {
+                if (error != null) errors += error
+            }
+        }).first
+        val wire = AudioRedundancyTest().wire()
+        try {
+            DatagramSocket().use { socket ->
+                val bad = wire.copyOf().apply { this[lastIndex] = (this[lastIndex].toInt() xor 1).toByte() }
+                for (packet in listOf(bad, wire)) socket.send(DatagramPacket(packet, packet.size, InetAddress.getLoopbackAddress(), port))
+            }
+            assertTrue(received.await(5, TimeUnit.SECONDS))
+            assertEquals(1, errors.size)
+            assertEquals(listOf(2880), started.toList())
+            assertEquals(listOf(2880, 3200), packets.map(AudioRedundancy::readTimestamp))
+            assertArrayEquals(byteArrayOf(1, 2), packets[0].copyOfRange(12, packets[0].size))
+            assertArrayEquals(byteArrayOf(3, 4), packets[1].copyOfRange(12, packets[1].size))
+        } finally { stream.close() }
+    }
+
     @Test fun alternatingDatagramSizesRetainOwnedPacketsAndReportDecryptTiming() {
         val key = ByteArray(32) { it.toByte() }
         val payloads = listOf(1, 1400, 0, 512).map { size -> ByteArray(size) { (it + size).toByte() } }

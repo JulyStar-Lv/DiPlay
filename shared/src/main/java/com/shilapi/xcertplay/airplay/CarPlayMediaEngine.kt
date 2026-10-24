@@ -209,7 +209,9 @@ class CarPlayMediaEngine(
         if (capture != null) audioCaptures[streamKey] = capture
         val clockProbe = RtpClockProbe()
         val microphoneStart = microphone?.let { config -> MicrophoneStart { sink.onMicrophoneStarted(streamId, config) } }
-        val audio = AudioStream(key, type, session::logDebug)
+        val redundancy = stream["supportsRTPPacketRedundancy"] == true
+        val audio = AudioStream(key, type, redundancy, session::logDebug)
+        session.logDebug("Audio: UDP recovery type=$type audioType=$audioType redundancy=$redundancy")
         val (dataPort, controlPort) = audio.listen(
             object : AudioStream.Listener {
                 override fun onStarted(firstSample: Int) {
@@ -264,7 +266,9 @@ class CarPlayMediaEngine(
             "dataPort" to dataPort,
             "controlPort" to controlPort,
             "streamConnectionID" to unsignedPlistInteger(connectionId ?: 0L),
-        )
+        ).apply {
+            if (redundancy) put("supportsRTPPacketRedundancy", true)
+        }
     }
 
     override fun onBufferedAudio(session: AirPlaySession, stream: Map<String, Any?>): Map<String, Any?>? {

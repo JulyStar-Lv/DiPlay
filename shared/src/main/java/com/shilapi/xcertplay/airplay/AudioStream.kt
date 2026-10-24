@@ -34,6 +34,7 @@ data class AudioFormat(
 class AudioStream(
     key: ByteArray,
     private val streamType: Int = -1,
+    private val redundancy: Boolean = false,
     private val onDiagnostic: (String) -> Unit = {},
 ) : Closeable {
     interface Listener {
@@ -134,10 +135,12 @@ class AudioStream(
                 val sample = readU32Be(wire, 4)
 
                 val decryptStart = System.nanoTime()
-                val rtp = try {
-                    packetOpener.open(wire).also {
+                val packets = try {
+                    val layout = AudioRedundancy.inspect(wire, redundancy)
+                    val opened = packetOpener.open(wire, layout.headerBytes).also {
                         stats.decrypted(System.nanoTime() - decryptStart, wire.size - RTP_HEADER_LEN - NONCE_LEN)
                     }
+                    AudioRedundancy.unpack(opened, layout)
                 } catch (error: Exception) {
                     val failureNumber = authenticationFailures.incrementAndGet()
                     if (failureNumber == 1) {
@@ -152,6 +155,7 @@ class AudioStream(
                     stats.processed()
                     continue
                 }
+                val rtp = packets.last()
                 val decryptedNumber = decryptedPackets.incrementAndGet()
                 if (decryptedNumber <= FIRST_PACKET_LOG_COUNT) {
                     android.util.Log.i(
@@ -171,9 +175,9 @@ class AudioStream(
                 listener.onPacket(wire, rtp, sample, null)
                 if (!started) {
                     started = true
-                    listener.onStarted(sample)
+                    listener.onStarted(AudioRedundancy.readTimestamp(packets.first()))
                 }
-                listener.onRtp(rtp, sample)
+                packets.forEach { listener.onRtp(it, AudioRedundancy.readTimestamp(it)) }
                 stats.processed()
             }
         } finally { stats.flush(ended = true) }

@@ -25,6 +25,7 @@ class AudioRebufferDiagnosticsTest {
         TestTrack.capacity = plan.trackBufferBytes
         TestTrack.queued = threshold / 2
         TestTrack.playing = true
+        TestTrack.underruns = 2
 
         val track = AudioTrack.Builder()
             .setAudioAttributes(AudioAttributes.Builder().build())
@@ -65,6 +66,7 @@ class AudioRebufferDiagnosticsTest {
             type.getDeclaredMethod("maintainPlaybackBuffer").apply { isAccessible = true }.invoke(renderer)
 
             assertTrue(reports.any { it.contains("Audio: rebuffer paused audioType=media rebufferCount=1") })
+            assertEquals(1, reports.count { it.startsWith("Audio: underrun audioType=media playoutRevision=B3") })
 
             // Write PCM to recover playback
             type.getDeclaredMethod("writePcm", ByteArray::class.java, Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
@@ -134,6 +136,7 @@ class AudioRebufferDiagnosticsTest {
 
             // Trigger 10 rebuffer pause and recovery cycles
             repeat(10) {
+                TestTrack.underruns = it + 1
                 set("playbackStarted", true)
                 set("underrunsAtPlaybackStart", 0)
                 set("lastPcmWriteNs", System.nanoTime())
@@ -155,6 +158,7 @@ class AudioRebufferDiagnosticsTest {
             assertEquals(5, pauseReports.size)
             assertEquals(5, recoverReports.size)
             assertEquals(10, get("rebufferCount") as Int)
+            assertEquals(5, reports.count { it.startsWith("Audio: underrun ") })
 
             // Test queue full cap over 10 overflow/drain cycles
             set("started", true)
@@ -185,6 +189,8 @@ class AudioRebufferDiagnosticsTest {
                 type.getDeclaredMethod("handle", audioPacketClass)
                     .apply { isAccessible = true }
                     .invoke(renderer, packetInstance)
+                val pcmQueue = get("pcmQueue") as AudioPcmQueue
+                while (!pcmQueue.isEmpty) pcmQueue.poll(0)
             }
 
             val queueFullReports = reports.filter { it.contains("Audio: queue full") }
@@ -198,7 +204,7 @@ class AudioRebufferDiagnosticsTest {
     @Implements(AudioTrack::class)
     class TestTrack {
         @Implementation fun getPlaybackHeadPosition() = 100_000
-        @Implementation fun getUnderrunCount() = 2
+        @Implementation fun getUnderrunCount() = underruns
         @Implementation fun pause() { playing = false }
         @Implementation fun play() { playing = true }
         @Implementation fun write(bytes: ByteArray, offset: Int, size: Int, mode: Int): Int {
@@ -209,6 +215,7 @@ class AudioRebufferDiagnosticsTest {
             var capacity = 0
             var queued = 0
             var playing = true
+            var underruns = 2
         }
     }
 }

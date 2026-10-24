@@ -23,6 +23,7 @@ class AudioRebufferCapacityTest {
             CapacityTrack.queued = threshold / 2
             CapacityTrack.playing = true
             CapacityTrack.blocked = false
+            CapacityTrack.head = 0
             val track = AudioTrack.Builder().setAudioAttributes(AudioAttributes.Builder().build())
                 .setAudioFormat(android.media.AudioFormat.Builder().setSampleRate(48_000)
                     .setEncoding(android.media.AudioFormat.ENCODING_PCM_16BIT)
@@ -55,7 +56,12 @@ class AudioRebufferCapacityTest {
 
     @Implements(AudioTrack::class)
     class CapacityTrack {
-        @Implementation fun getPlaybackHeadPosition() = 0
+        @Implementation fun getPlaybackHeadPosition(): Int {
+            // Model consumption after play(); a stationary fake head would intentionally
+            // make the new music writer wait forever after filling its target headroom.
+            if (playing) head += 480
+            return head
+        }
         @Implementation fun getUnderrunCount() = 1
         @Implementation fun pause() { playing = false }
         @Implementation fun play() { playing = true }
@@ -72,6 +78,7 @@ class AudioRebufferCapacityTest {
             var queued = 0
             var playing = true
             var blocked = false
+            var head = 0
         }
     }
 }

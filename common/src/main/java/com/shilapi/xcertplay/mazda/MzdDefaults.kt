@@ -3,7 +3,7 @@ package com.shilapi.xcertplay.mazda
 import android.content.Context
 import com.shilapi.xcertplay.AirPlayPersistence
 import com.shilapi.xcertplay.AppAppearance
-import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
+import com.shilapi.xcertplay.media.MediaAudioBuffer
 import com.shilapi.xcertplay.setup.SetupGuide
 import androidx.core.content.edit
 
@@ -12,14 +12,16 @@ internal object MzdDefaults {
     fun initialize(context: Context) {
         // These keys belong to AirPlayPersistence; keep its existing readers and writers unchanged.
         val preferences = context.getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE)
-        // Seed before any reader persists the shared fallback; retain saved modes on upgrades.
-        if (!preferences.contains("wireless_hotspot_mode")) {
-            AirPlayPersistence.saveWirelessHotspotMode(context, WirelessHotspotMode.WIFI_P2P)
-        }
         // Also seed upgrades already initialized by an earlier Mazda build. Explicit choices
         // (including off) are retained, and this only applies at the next CarPlay connection.
+        if (!preferences.contains("disable_media_key_audio_focus")) {
+            AirPlayPersistence.saveDisableMediaKeyAudioFocus(context, true)
+        }
         if (!preferences.contains("mtk_decoder_tuning")) AirPlayPersistence.saveMtkDecoderTuning(context, true)
-        if (!preferences.contains("main_buffered_audio")) AirPlayPersistence.saveMainBufferedAudio(context, true)
+        if (!preferences.contains("media_buffer_ms")) {
+            // The existing writer pins the wired delay before changing the wireless default.
+            AirPlayPersistence.saveMediaBufferMillis(context, wireless = true, millis = MediaAudioBuffer.MOST_STABLE_MILLIS)
+        }
         if (preferences.getBoolean("mazda_defaults_initialized", false)) return
         if (!preferences.contains("hide_top_bar")) AirPlayPersistence.saveHideTopBar(context, false)
         if (!preferences.contains("hide_bottom_bar")) AirPlayPersistence.saveHideBottomBar(context, false)
