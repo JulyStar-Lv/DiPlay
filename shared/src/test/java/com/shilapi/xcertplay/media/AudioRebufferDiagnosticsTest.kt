@@ -80,7 +80,7 @@ class AudioRebufferDiagnosticsTest {
             val audioPacketClass = Class.forName("com.shilapi.xcertplay.media.AudioRenderer\$AudioPacket")
             val packetConstructor = audioPacketClass.declaredConstructors.single().apply { isAccessible = true }
             val dummyRtp = ByteArray(12 + 100)
-            val packetInstance = packetConstructor.newInstance(dummyRtp, 0)
+            val packetInstance = packetConstructor.newInstance(dummyRtp, 0, 0L)
 
             type.getDeclaredMethod("handle", audioPacketClass).apply { isAccessible = true }.invoke(renderer, packetInstance)
 
@@ -166,7 +166,7 @@ class AudioRebufferDiagnosticsTest {
             val audioPacketClass = Class.forName("com.shilapi.xcertplay.media.AudioRenderer\$AudioPacket")
             val packetConstructor = audioPacketClass.declaredConstructors.single().apply { isAccessible = true }
             val dummyRtp = ByteArray(12 + 100)
-            val packetInstance = packetConstructor.newInstance(dummyRtp, 0)
+            val packetInstance = packetConstructor.newInstance(dummyRtp, 0, 0L)
 
             @Suppress("UNCHECKED_CAST")
             val queue = get("queue") as java.util.concurrent.BlockingQueue<Any>

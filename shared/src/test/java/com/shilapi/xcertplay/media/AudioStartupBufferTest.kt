@@ -65,7 +65,7 @@ class AudioStartupBufferTest {
             @Suppress("UNCHECKED_CAST")
             val queue = h.get("queue") as java.util.concurrent.BlockingQueue<Any>
             val packet = Class.forName("com.shilapi.xcertplay.media.AudioRenderer\$AudioPacket")
-                .declaredConstructors.single().apply { isAccessible = true }.newInstance(ByteArray(12), 0)
+                .declaredConstructors.single().apply { isAccessible = true }.newInstance(ByteArray(12), 0, System.nanoTime())
             queue.offer(packet)
             h.maintain()
             assertEquals(0, StartTrack.plays)

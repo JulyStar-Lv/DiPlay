@@ -48,7 +48,7 @@ class AudioClockTrimTest {
         set("startThresholdBytes", 57_600)
         set("bytesPerSecond", 48_000 * 4)
         // 300 ms of music is the target; createTrack sets this up for music only.
-        set("clockTrim", MediaClockTrim(48_000, 14_400))
+        set("clockTrim", MediaClockTrim(48_000, 14_400, measuresTarget = true))
     }
 
     @After fun tearDown() {
@@ -74,7 +74,7 @@ class AudioClockTrimTest {
 
     @Test fun aTrackThatRefusesTheRateKeepsPlayingWithoutTheTrim() {
         RateTrack.result = AudioTrack.ERROR_INVALID_OPERATION
-        set("clockTrim", MediaClockTrim(48_000, 14_400, integral = -0.0075))
+        set("clockTrim", MediaClockTrim(48_000, 14_400, integral = -0.0075, measuresTarget = true))
         write(28_800)
         assertNull(get("clockTrim"))
         assertTrue(reports.toString(), reports.contains("Audio: clock trim off audioType=media rate=47640 result=-3"))
