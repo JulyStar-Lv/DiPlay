@@ -34,6 +34,18 @@ android {
         targetSdk = 37
         versionCode = mobileConfig.versionCode
         versionName = mobileConfig.versionName
+        // Bench integration is explicit; source/CI and ordinary release builds leave it disabled.
+        manifestPlaceholders["mzdHudEnabled"] = providers.gradleProperty("mzdHudEnabled").orElse("false").get()
+        manifestPlaceholders["mzdHudMapEnabled"] = providers.gradleProperty("mzdHudMapEnabled")
+            .orElse("false").get().also { require(it in setOf("true", "false")) }
+        manifestPlaceholders["mzdHudMapContent"] = providers.gradleProperty("mzdHudMapContent")
+            .orElse("map").get().also { require(it in setOf("map", "instruction_card", "map_with_instruction_card")) }
+        manifestPlaceholders["mzdHudAutomaticA2dpHandover"] = providers.gradleProperty("mzdHudAutomaticA2dpHandover")
+            .orElse("false").get().also { require(it in setOf("true", "false")) }
+        manifestPlaceholders["mzdHudMediaSourceType"] = providers.gradleProperty("mzdHudMediaSourceType")
+            .orElse("27").get().also {
+                require(it in setOf("20", "27", "29")) { "mzdHudMediaSourceType must be 20, 27 or 29 for the verified J90K text layout" }
+            }
 
     }
 
@@ -91,6 +103,7 @@ dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(project(":common"))
     implementation(project(":shared"))
+    implementation(project(":vehicle-mzd"))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.app.projected)
     implementation(libs.androidx.compose.material3)

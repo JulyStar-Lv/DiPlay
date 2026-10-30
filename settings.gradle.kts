@@ -33,3 +33,6 @@ include(":home")
 project(":home").projectDir = file("samples/home")
 
 include(":mazda")
+include(":display-api")
+include(":display-android")
+include(":vehicle-mzd")

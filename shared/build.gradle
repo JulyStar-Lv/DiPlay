@@ -38,6 +38,8 @@ android {
     }
 }
 dependencies {
+    api project(':display-api')
+    api project(':display-android')
     implementation libs.androidx.app
     implementation libs.bouncycastle
     implementation libs.jmdns

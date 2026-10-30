@@ -7,7 +7,7 @@
     </queries>
 
     <application
-        android:name="com.shilapi.xcertplay.mazda.MzdApplication"
+        android:name="com.shilapi.xcertplay.mazda.MzdHudApplication"
         android:allowBackup="false"
         android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -18,6 +18,12 @@
         android:supportsRtl="true"
         android:resizeableActivity="true"
         android:theme="@style/Theme.Xcertplay">
+
+        <meta-data android:name="com.shilapi.vehicle.mzd.HUD_ENABLED" android:value="${mzdHudEnabled}" />
+        <meta-data android:name="com.shilapi.vehicle.mzd.HUD_MAP_ENABLED" android:value="${mzdHudMapEnabled}" />
+        <meta-data android:name="com.shilapi.vehicle.mzd.HUD_MAP_CONTENT" android:value="${mzdHudMapContent}" />
+        <meta-data android:name="com.shilapi.vehicle.mzd.HUD_AUTOMATIC_A2DP_HANDOVER" android:value="${mzdHudAutomaticA2dpHandover}" />
+        <meta-data android:name="com.shilapi.vehicle.mzd.HUD_MEDIA_SOURCE_TYPE" android:value="${mzdHudMediaSourceType}" />
 
         <meta-data
             android:name="dockUiVisibility"

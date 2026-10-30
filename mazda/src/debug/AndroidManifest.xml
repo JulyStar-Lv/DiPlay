@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application android:name="com.shilapi.xcertplay.mazda.hudbench.HudBenchApplication"
+        tools:replace="android:name">
+        <activity android:name="com.shilapi.xcertplay.mazda.hudbench.HudBenchActivity"
+            android:exported="true" android:launchMode="singleTop" />
+        <activity android:name="com.shilapi.xcertplay.mazda.hudbench.HudRouteReplayActivity"
+            android:exported="true" />
+    </application>
+</manifest>

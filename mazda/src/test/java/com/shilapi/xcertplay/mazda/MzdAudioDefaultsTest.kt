@@ -3,6 +3,8 @@ package com.shilapi.xcertplay.mazda
 import android.content.Context
 import com.shilapi.xcertplay.AirPlayPersistence
 import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
+import com.shilapi.xcertplay.VehicleDisplayProvider
+import com.shilapi.display.api.VehicleDisplayFactory
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -17,6 +19,11 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34])
 class MzdAudioDefaultsTest {
     private val application get() = RuntimeEnvironment.getApplication()
+
+    @Test fun defaultBuildHasNoActiveHudDriver() {
+        val provider = application as VehicleDisplayProvider
+        assertTrue(provider.vehicleDisplayFactory === VehicleDisplayFactory.NONE)
+    }
 
     @Test fun mazdaApplicationStartsWithUnbufferedProtocolAndOneSecondWirelessBuffer() {
         assertTrue(application is MzdApplication)

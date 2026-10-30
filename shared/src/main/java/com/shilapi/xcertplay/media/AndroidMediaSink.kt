@@ -261,6 +261,26 @@ class AndroidMediaSink(
     // Native codec work and waits never run under this lock.
     private val videoOwnershipLock = Any()
     private var videoClosed = false
+    @Volatile private var vehicleMapLease: com.shilapi.display.android.VehicleMapLease? = null
+    private var vehicleMapSize: Pair<Int, Int>? = null
+
+    /** Owned by this sink/session, so an Activity recreation does not destroy the HUD map. */
+    fun bindVehicleMap(output: com.shilapi.display.android.VehicleMapOutput) {
+        synchronized(videoOwnershipLock) {
+            check(!videoClosed && vehicleMapLease == null)
+            vehicleMapSize = output.request.width to output.request.height
+            vehicleMapLease = output.attach(object : com.shilapi.display.android.MapSurfaceConsumer {
+                override fun attach(surface: Surface) = setSurface(AUX_SCREEN_TYPE, surface)
+                override fun detach(surface: Surface, released: () -> Unit) {
+                    val pending = beginSurfaceDetach(surface, parkMain = false)
+                    Thread({
+                        if (pending.await()) released()
+                        else Log.e("DiPlay-Map", "surface retained: decoder detach not confirmed")
+                    }, "vehicle-map-detach").apply { isDaemon = true }.start()
+                }
+            })
+        }
+    }
     private val videoReleasedListeners = ArrayList<() -> Unit>()
     // Closed decoders whose workers may still hold a codec on a surface until they exit; a surface
     // detach also waits for them.
@@ -523,6 +543,7 @@ class AndroidMediaSink(
                 pendingVideoCodec.remove(type)
             }
         }
+        if (type == AUX_SCREEN_TYPE) vehicleMapLease?.streamActive(active)
         synchronized(screenStateLock) {
             if (active) activeScreenTypes.add(type) else activeScreenTypes.remove(type)
             screenStreamActiveChanged?.invoke(type, active)
@@ -655,6 +676,7 @@ class AndroidMediaSink(
     }
 
     fun close() {
+        vehicleMapLease?.close()
         AmbientMusicController.closeSink(ambientSinkToken)
         synchronized(videoOwnershipLock) {
             videoClosed = true
@@ -703,13 +725,16 @@ class AndroidMediaSink(
     private fun newVideoDecoder(type: Int, surface: Surface?, statsLabel: String? = null, startImmediately: Boolean = true) = VideoDecoder(
         type,
         surface,
-        videoWidth,
-        videoHeight,
+        if (type == AUX_SCREEN_TYPE) vehicleMapSize?.first ?: videoWidth else videoWidth,
+        if (type == AUX_SCREEN_TYPE) vehicleMapSize?.second ?: videoHeight else videoHeight,
         preferSoftwareHevcDecoder,
         requestKeyFrame = { requestVideoRecovery(type) },
         report = { videoDiagnosticHandlers[type]?.invoke(it) },
         statsLabel = statsLabel,
         onExit = ::onVideoDecoderExit,
+        onOutputSize = { width, height ->
+            if (type == AUX_SCREEN_TYPE && statsLabel == null) vehicleMapLease?.videoSize(width, height)
+        },
         // Only the main screen goes to the host's SurfaceView; mirrors and the cluster keep their path.
         pacingDelayNanos = if (type == MAIN_SCREEN_TYPE && statsLabel == null) videoPacingDelayMillis * 1_000_000L else 0L,
         operatingRate = videoOperatingRate(type, statsLabel, mainVideoFrameRate),
@@ -766,6 +791,7 @@ class AndroidMediaSink(
 
 /** CarPlay's main screen stream type. */
 private const val MAIN_SCREEN_TYPE = 110
+private const val AUX_SCREEN_TYPE = 111
 
 /**
  * An offscreen consumer a parked decoder renders to while its SurfaceView is gone. It drops each image
@@ -905,6 +931,7 @@ private class VideoDecoder(
     pacingDelayNanos: Long = 0L,
     /** Called on the worker as its last step, after it has released its codec. */
     private val onExit: (VideoDecoder) -> Unit = {},
+    private val onOutputSize: (Int, Int) -> Unit = { _, _ -> },
     operatingRate: Int = 0,
     /** Set [vendorLowLatencyKeys] on the tuned configure attempts. */
     private val vendorLowLatency: Boolean = false,
@@ -1636,6 +1663,13 @@ private class VideoDecoder(
     }
 
     private fun logOutputFormat(format: MediaFormat) {
+        val codedWidth = format.intOrNull(MediaFormat.KEY_WIDTH) ?: width
+        val codedHeight = format.intOrNull(MediaFormat.KEY_HEIGHT) ?: height
+        val visibleWidth = (format.intOrNull("crop-right") ?: (codedWidth - 1)) -
+            (format.intOrNull("crop-left") ?: 0) + 1
+        val visibleHeight = (format.intOrNull("crop-bottom") ?: (codedHeight - 1)) -
+            (format.intOrNull("crop-top") ?: 0) + 1
+        if (visibleWidth > 0 && visibleHeight > 0) onOutputSize(visibleWidth, visibleHeight)
         report("output format requested=${width}x${height} " +
             "coded=${format.intOrNull(MediaFormat.KEY_WIDTH)}x${format.intOrNull(MediaFormat.KEY_HEIGHT)} " +
             "crop=${format.intOrNull("crop-left")},${format.intOrNull("crop-top")}," +

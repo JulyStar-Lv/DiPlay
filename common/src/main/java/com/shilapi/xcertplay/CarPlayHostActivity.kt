@@ -1372,6 +1372,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         !isDestroyed && !handshakeResetInProgress && !shuttingDown.get()
 
     private fun ensureClusterPresentation() {
+        if ((application as? VehicleDisplayProvider)?.vehicleMapOutput != null) return
         if (!AirPlayPersistence.loadClusterMapEnabled(this)) {
             clusterLaunchGate.reset()
             dismissClusterPresentation()
@@ -1548,6 +1549,7 @@ open class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun onClusterSurface(surface: Surface?) {
+        if ((application as? VehicleDisplayProvider)?.vehicleMapOutput != null) return
         if (clusterSurface === surface) return
         // A direct handoff lets MediaCodec.setOutputSurface preserve its reference frames.
         // Clearing first would destroy the decoder and can leave stream 111 waiting for an IDR.
@@ -1591,6 +1593,11 @@ open class CarPlayHostActivity : ComponentActivity() {
         adbClusterConfigured = false
         clusterStreamOnDisplay = false
         requestedSmallWindowForStream = null
+        (application as? VehicleDisplayProvider)?.vehicleMapOutput?.let { output ->
+            val config = com.shilapi.xcertplay.projection.carplay.CarPlayAuxiliaryMap.config(output.request)
+            appendLog("Vehicle map: requesting auxiliary ${config.widthPixels}x${config.heightPixels} fps=${config.fps}")
+            return config
+        }
         if (!AirPlayPersistence.loadClusterMapEnabled(this)) return null
         // 已选择的 ADB 路由使用固定尺寸，无需启动仪表 Activity 才能准备流参数。
         if (AdbClusterRouter.enabled(this)) {
@@ -5773,6 +5780,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             controllerGeneration = controllerGeneration,
         )
         sink = renderer
+        (application as? VehicleDisplayProvider)?.vehicleMapOutput?.let(renderer::bindVehicleMap)
         currentSurface?.let(::attachSurface)
         MapMirrors.reapply()
         val media = createMediaEngine(renderer)
@@ -5781,6 +5789,8 @@ open class CarPlayHostActivity : ComponentActivity() {
         }
         val next = CarPlayController(
             context = this,
+            displayFactory = (application as? VehicleDisplayProvider)?.vehicleDisplayFactory
+                ?: com.shilapi.display.api.VehicleDisplayFactory.NONE,
             config = config,
             airPlayConfig = airPlayConfig,
             identity = airPlayIdentity,
@@ -6738,6 +6748,7 @@ open class CarPlayHostActivity : ComponentActivity() {
 
     private fun attachSurface(surface: Surface) {
         sink?.setSurface(SCREEN_TYPE_MAIN, surface)
+        if ((application as? VehicleDisplayProvider)?.vehicleMapOutput != null) return
         if (AirPlayPersistence.loadClusterMapEnabled(this)) {
             if (clusterOutputReady()) clusterSurface?.let { sink?.setSurface(SCREEN_TYPE_ALT, it) }
         } else {
@@ -6915,6 +6926,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                 if (active) mainHandler.postDelayed(noPictureCheck, NO_PICTURE_MILLIS)
             }
             if (type == SCREEN_TYPE_ALT) {
+                if ((application as? VehicleDisplayProvider)?.vehicleMapOutput != null) return@runOnUiThread
                 Log.i(ClusterMapPresentation.TAG, "cluster stream active=$active")
                 appendLog("Cluster map: stream active=$active")
                 clusterPresentation?.setStreamActive(active)
