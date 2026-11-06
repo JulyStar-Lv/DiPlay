@@ -1,0 +1,14 @@
+[
+  {
+    "file": "Roboto-Regular.ttf",
+    "url": "https://raw.githubusercontent.com/googlefonts/roboto-2/38062f4b4a0be4346d07a928408da21602545e9e/src/hinted/Roboto-Regular.ttf",
+    "bytes": 515100,
+    "sha256": "56a45233d29f11b4dfb86d248e921939d115778f87325e7ae8cc108383d6664d"
+  },
+  {
+    "file": "Roboto-LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/googlefonts/roboto-2/38062f4b4a0be4346d07a928408da21602545e9e/LICENSE",
+    "bytes": 11357,
+    "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+  }
+]

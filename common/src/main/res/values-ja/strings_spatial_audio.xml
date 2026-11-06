@@ -1,0 +1,7 @@
+<resources>
+    <string name="settings_spatial_audio">空間オーディオ（実験的機能）</string>
+    <string name="settings_spatial_audio_description">アプリが提供するマルチチャンネル音楽を車のオーディオで再生します。アプリと楽曲の対応が必要です。変更後は CarPlay に再接続してください。</string>
+    <string name="settings_spatial_audio_unavailable">このバージョンまたは車は空間オーディオに対応していません。通常の音楽は再生できます。変更後は CarPlay に再接続してください。</string>
+    <string name="settings_spatial_pcm_dcx">Dolby サウンド（実験的機能）</string>
+    <string name="settings_spatial_pcm_dcx_description">アプリが提供するマルチチャンネル音楽に Dolby 処理を適用してから再生します。先に「空間オーディオ」をオンにしてください。ステレオ音楽には影響しません。変更後は CarPlay に再接続してください。</string>
+</resources>

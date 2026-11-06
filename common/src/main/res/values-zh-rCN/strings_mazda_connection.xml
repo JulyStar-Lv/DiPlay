@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="mazda_hotspot_mode_description">优先使用已保存的车机热点信息；未填写时自动创建本地 5 GHz 热点。创建失败后，请手动开启车机热点并在此保存名称和密码。</string>
+    <string name="mazda_hotspot_automatic">尚未保存车机热点信息，连接时将自动创建本地 5 GHz 热点。</string>
+    <string name="mazda_wifi_off_title">建议关闭车机 Wi-Fi</string>
+    <string name="mazda_wifi_off_message">车机后台搜索 Wi-Fi 网络可能导致 CarPlay 声音或画面卡顿。请关闭车机 WLAN，热点仍可保持开启。iPhone 的 Wi-Fi 请保持开启。</string>
+    <string name="mazda_connect_anyway">仍然连接</string>
+    <string name="mazda_local_hotspot_failed_title">本地热点创建失败</string>
+    <string name="mazda_local_hotspot_failed_message">请在车机系统设置中开启热点，建议选择 5 GHz，然后将名称和密码填写到 DiPlay 的“设置 → 热点连接”中。已有信息会自动填入，请确认与车机热点一致。</string>
+</resources>

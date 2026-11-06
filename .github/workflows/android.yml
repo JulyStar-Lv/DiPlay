@@ -1,0 +1,65 @@
+name: Android checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject credential files in public source
+        run: python3 scripts/check_public_tree.py
+      # Local Mazda tools are ignored and absent from ordinary checkouts.
+      - name: Check vehicle display module boundaries
+        if: ${{ hashFiles('mazda/tools/check_vehicle_display_boundaries.py') != '' }}
+        run: python3 mazda/tools/check_vehicle_display_boundaries.py
+      - name: Check HUD bench evidence helper
+        if: ${{ hashFiles('mazda/tools/test_hud*.py') != '' }}
+        run: python3 -m unittest discover -s mazda/tools -p 'test_hud*.py'
+      - name: Check APAC packet boundaries
+        if: ${{ hashFiles('mazda/tools/test_apac*.py') != '' }}
+        run: python3 -m unittest discover -s mazda/tools -p 'test_apac*.py'
+      - name: Check PCM digital probe analysis
+        if: ${{ hashFiles('mazda/tools/test_audio_pcm_probe.py') != '' }}
+        run: python3 -m unittest discover -s mazda/tools -p 'test_audio_pcm_probe.py'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-37.0 build-tools;36.0.0 ndk;28.2.13676358
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Unit tests, lint and source-only debug build
+        env:
+          DIPLAY_SCREENSHOT_DIR: ${{ github.workspace }}/common/build/reports/swipe-menu-ui
+        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :home:testDebugUnitTest :mazda:testDebugUnitTest :mobile:lintDebug :home:lintDebug :maphost:lintDebug :mobile:assembleDebug :home:assembleDebug :maphost:assembleDebug :mazda:lintDebug :mazda:assembleDebug :mazda:compileReleaseKotlin :mazda:processReleaseManifest --stacktrace
+      - name: Check OEM APK inclusion
+        if: ${{ hashFiles('mazda/tools/check_vehicle_display_boundaries.py') != '' }}
+        run: python3 mazda/tools/check_vehicle_display_boundaries.py --apks --release
+      - name: Test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            shared/build/reports/tests/
+            common/build/reports/tests/
+            common/build/reports/album-artwork-ui/
+            common/build/reports/black-corner-ui/
+            common/build/reports/mazda-ui/
+            common/build/reports/swipe-menu-ui/
+            common/build/reports/wheel-media-ui/
+            mobile/build/reports/lint-results-debug.html
+            mazda/build/reports/lint-results-debug.html
+            mazda/build/reports/tests/
+            mazda/build/reports/hud-tbt/
+            mazda/build/reports/mazda-ui/
+            samples/home/build/reports/tests/
+            samples/home/build/reports/lint-results-debug.html
+            samples/maphost/build/reports/lint-results-debug.html

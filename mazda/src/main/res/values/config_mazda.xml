@@ -1,0 +1,4 @@
+<resources>
+    <bool name="config_mazda">true</bool>
+    <string name="config_oem_label" translatable="false">Mazda</string>
+</resources>

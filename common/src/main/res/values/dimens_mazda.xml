@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Match FileManager's header typography and vector size, independent of display density. -->
+    <dimen name="mazda_header_brand_size">40px</dimen>
+    <dimen name="mazda_header_close_size">64px</dimen>
+    <!-- OEM title-bar geometry stays in physical pixels, like its 128px row and 32px icon gap. -->
+    <dimen name="mazda_header_height">128px</dimen>
+    <dimen name="mazda_header_start">40px</dimen>
+    <dimen name="mazda_header_title_gap">32px</dimen>
+    <dimen name="mazda_header_brand_gap">12px</dimen>
+    <!-- The OEM launcher toast layout uses physical cockpit pixels. -->
+    <dimen name="mazda_toast_text_size">32px</dimen>
+    <dimen name="mazda_toast_padding_horizontal">16px</dimen>
+    <dimen name="mazda_toast_padding_vertical">26px</dimen>
+    <dimen name="mazda_toast_corner_radius">4px</dimen>
+    <dimen name="mazda_toast_elevation">24px</dimen>
+    <dimen name="mazda_toast_bottom_margin">56px</dimen>
+    <dimen name="mazda_toast_max_text_width">1536px</dimen>
+</resources>

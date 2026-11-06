@@ -1,0 +1,7 @@
+<resources>
+    <string name="settings_spatial_audio">الصوت المكاني (تجريبي)</string>
+    <string name="settings_spatial_audio_description">تشغيل الموسيقى متعددة القنوات التي يوفرها التطبيق عبر نظام الصوت في السيارة. يتطلب دعم التطبيق والأغنية. أعد اتصال CarPlay بعد تغيير هذا الخيار.</string>
+    <string name="settings_spatial_audio_unavailable">هذا الإصدار أو السيارة لا يدعم الصوت المكاني. يمكنك الاستماع إلى الموسيقى العادية. أعد اتصال CarPlay بعد تغيير هذا الخيار.</string>
+    <string name="settings_spatial_pcm_dcx">صوت Dolby (تجريبي)</string>
+    <string name="settings_spatial_pcm_dcx_description">تمرير الموسيقى متعددة القنوات التي يوفرها التطبيق عبر معالجة Dolby قبل تشغيلها. شغّل الصوت المكاني أولًا، ولا تتأثر موسيقى الستيريو. أعد اتصال CarPlay بعد تغيير هذا الخيار.</string>
+</resources>

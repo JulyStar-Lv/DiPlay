@@ -1,0 +1,254 @@
+{
+  "source": "User-provided vehicle gui_navi.kzb",
+  "sourceSha256": "248314150104772fcd451642da3e195cb91d5241ec8c70b4c3282941853fde43",
+  "images": [
+    {
+      "file": "tbt/3.png",
+      "oemResource": "/Resource Files/Images/tbt/3.png",
+      "sha256": "018d4654d2fe213c1609a0004d6e027d2625fb480e735d849609392188b91dee",
+      "bytes": 1391
+    },
+    {
+      "file": "tbt/16.png",
+      "oemResource": "/Resource Files/Images/tbt/16.png",
+      "sha256": "1dd26c7e0b9353b4d13190767d63a9f045330558a82adc48a20266645a61b249",
+      "bytes": 588
+    },
+    {
+      "file": "tbt/17.png",
+      "oemResource": "/Resource Files/Images/tbt/17.png",
+      "sha256": "e7bc5243534d702f47ccab1c8c8d2e5c9bd48cf3eef5cb7880cabc4ce9751f6f",
+      "bytes": 839
+    },
+    {
+      "file": "tbt/18.png",
+      "oemResource": "/Resource Files/Images/tbt/18.png",
+      "sha256": "0ae10459e1cf6e44d84e6ac015e869d2edc8d958172719a0b1209413dee6c33f",
+      "bytes": 853
+    },
+    {
+      "file": "tbt/19.png",
+      "oemResource": "/Resource Files/Images/tbt/19.png",
+      "sha256": "d97bd0a638396b5e2a36e271f6c6372fb31ad89c5b7446790efb0010c26b1b04",
+      "bytes": 625
+    },
+    {
+      "file": "tbt/20.png",
+      "oemResource": "/Resource Files/Images/tbt/20.png",
+      "sha256": "61aff3233b9b83ea39e202e79cc8e6f3e39b8fecf7090fe106a2bfc232dc2351",
+      "bytes": 593
+    },
+    {
+      "file": "tbt/21.png",
+      "oemResource": "/Resource Files/Images/tbt/21.png",
+      "sha256": "c2223f9c77f3178a9e2cb210a230620b171b8e6f3852d66452debe20f1d990f7",
+      "bytes": 810
+    },
+    {
+      "file": "tbt/22.png",
+      "oemResource": "/Resource Files/Images/tbt/22.png",
+      "sha256": "c493eedbea7e7617781f1bafb9a2c64c8e8e419da6ade656929fa3c4d1a0b702",
+      "bytes": 901
+    },
+    {
+      "file": "tbt/23.png",
+      "oemResource": "/Resource Files/Images/tbt/23.png",
+      "sha256": "14ad54c9dbaa2e0ea8526614ba9067df05cf33a362843168ef0140345f317adb",
+      "bytes": 888
+    },
+    {
+      "file": "tbt/24.png",
+      "oemResource": "/Resource Files/Images/tbt/24.png",
+      "sha256": "d36fb567bccacf71535997c3e8fad73a50739aa1f2cfe6431439736fc525cf9a",
+      "bytes": 955
+    },
+    {
+      "file": "tbt/42.png",
+      "oemResource": "/Resource Files/Images/tbt/42.png",
+      "sha256": "66c63826e07a771c550a11126a9c51f65536ace879b405640af5d6dab49d4584",
+      "bytes": 1992
+    },
+    {
+      "file": "tbt/43.png",
+      "oemResource": "/Resource Files/Images/tbt/43.png",
+      "sha256": "9f95be47ab196c7efe4e78d163a4b6e6a17202281bd972aafb901e289c8767b7",
+      "bytes": 2122
+    },
+    {
+      "file": "tbt/44.png",
+      "oemResource": "/Resource Files/Images/tbt/44.png",
+      "sha256": "6d3631cf7fdd76cf488b1c36d797c84dc98576274b19df3fc2a97ec78b74cbe8",
+      "bytes": 2235
+    },
+    {
+      "file": "tbt/45.png",
+      "oemResource": "/Resource Files/Images/tbt/45.png",
+      "sha256": "14257bb62c33281fde33a8e386124c759b7b7dad603745f8d6e3d71a0a7b938d",
+      "bytes": 2111
+    },
+    {
+      "file": "tbt/46.png",
+      "oemResource": "/Resource Files/Images/tbt/46.png",
+      "sha256": "8490a4407c6daba88f7cead870fe904f5ceff7d22f396389af3f5405302f8d82",
+      "bytes": 2124
+    },
+    {
+      "file": "tbt/47.png",
+      "oemResource": "/Resource Files/Images/tbt/47.png",
+      "sha256": "9a6df5e88f27c427446c49e20e64830254fcc98d2839e9c0d8b61982d9167db4",
+      "bytes": 2163
+    },
+    {
+      "file": "tbt/48.png",
+      "oemResource": "/Resource Files/Images/tbt/48.png",
+      "sha256": "f8a057e4618f21246b1dda79952feffc91bf49d59485eb2052cfcb27e2289794",
+      "bytes": 2077
+    },
+    {
+      "file": "tbt/49.png",
+      "oemResource": "/Resource Files/Images/tbt/49.png",
+      "sha256": "ad4fb9908dae648cf2a9f82ae48faa15230c4d699049b7478488bb57623fb296",
+      "bytes": 2240
+    },
+    {
+      "file": "tbt/50.png",
+      "oemResource": "/Resource Files/Images/tbt/50.png",
+      "sha256": "17cc12fc2a8d01f26092b0f0d71e833d2508faa90fee5fbe0aab606c53c8546f",
+      "bytes": 2223
+    },
+    {
+      "file": "tbt/51.png",
+      "oemResource": "/Resource Files/Images/tbt/51.png",
+      "sha256": "1e72b70a82eb4ec13eb4c6456d74a2ad013b30f9c22edd29d42b769cecf6e3f8",
+      "bytes": 2243
+    },
+    {
+      "file": "tbt/53.png",
+      "oemResource": "/Resource Files/Images/tbt/53.png",
+      "sha256": "6ededb70dfe8e579f08c21217f58a200da75f48a34a2b80aaf154004e99b3d82",
+      "bytes": 1682
+    },
+    {
+      "file": "tbt/62.png",
+      "oemResource": "/Resource Files/Images/tbt/62.png",
+      "sha256": "5c21b79807177072636b32fc97be32a6c91c3d257be4e099e361721ffdc72d83",
+      "bytes": 1457
+    },
+    {
+      "file": "tbt/63.png",
+      "oemResource": "/Resource Files/Images/tbt/63.png",
+      "sha256": "45fb037e1c6c7ba4aae6b90d8c49678e63829c57d2a14e0b0a0399ceeb356b97",
+      "bytes": 1297
+    },
+    {
+      "file": "tbt/67.png",
+      "oemResource": "/Resource Files/Images/tbt/67.png",
+      "sha256": "13464373d3986abcf21ef97d2155ced22f108cd51205cd34a4cdbc65fd92bb1b",
+      "bytes": 1494
+    },
+    {
+      "file": "tbt/68.png",
+      "oemResource": "/Resource Files/Images/tbt/68.png",
+      "sha256": "f0f03adeadb7b1737f21d776cf57d8937c89f26d27bfbcbfd6f0f6340d12c261",
+      "bytes": 1223
+    },
+    {
+      "file": "tbt/69.png",
+      "oemResource": "/Resource Files/Images/tbt/69.png",
+      "sha256": "9dbc7308bb0e5fe569402d13242f0646e391778b172b233ee2ef711bdac61080",
+      "bytes": 1873
+    },
+    {
+      "file": "tbt/70.png",
+      "oemResource": "/Resource Files/Images/tbt/70.png",
+      "sha256": "a132ea73b85247b9e183ba2b24c41fc93ac35c13f39295cf76872f2ae4771a66",
+      "bytes": 1709
+    },
+    {
+      "file": "tbt/74.png",
+      "oemResource": "/Resource Files/Images/tbt/74.png",
+      "sha256": "a7d61e0372c0ca1dcfd41972783548304c12e16f14d689110068aca6e398ff3a",
+      "bytes": 1931
+    },
+    {
+      "file": "tbt/75.png",
+      "oemResource": "/Resource Files/Images/tbt/75.png",
+      "sha256": "1aee0a42126b905b7549e638932fdb62850215495068efeb6fa0212387cae84f",
+      "bytes": 2030
+    },
+    {
+      "file": "tbt/76.png",
+      "oemResource": "/Resource Files/Images/tbt/76.png",
+      "sha256": "5201497cea55f463ae69ca0d60f73f1e9d15dec5e4503974509fba5222113ed8",
+      "bytes": 2110
+    },
+    {
+      "file": "tbt/77.png",
+      "oemResource": "/Resource Files/Images/tbt/77.png",
+      "sha256": "797c8e5b2c3ac75a77dc83a6c7f21d1f775f43712ba6fcfafe5e48813b90b9e1",
+      "bytes": 1983
+    },
+    {
+      "file": "tbt/78.png",
+      "oemResource": "/Resource Files/Images/tbt/78.png",
+      "sha256": "32f197fda90fda752c27acf868cb06e2edb9101875e8eb286af473c8e70b9e71",
+      "bytes": 2111
+    },
+    {
+      "file": "tbt/79.png",
+      "oemResource": "/Resource Files/Images/tbt/79.png",
+      "sha256": "3d34ba4aff312c3917a8a5307f93665a7df86f85aca94a8caa7fd4e63daba2e0",
+      "bytes": 2145
+    },
+    {
+      "file": "tbt/80.png",
+      "oemResource": "/Resource Files/Images/tbt/80.png",
+      "sha256": "0d11efe7d8076afe5957cbaadfa98b1e345443df270fa1aab800be2e91733cce",
+      "bytes": 2034
+    },
+    {
+      "file": "tbt/81.png",
+      "oemResource": "/Resource Files/Images/tbt/81.png",
+      "sha256": "322444c21339a9a24f5a3458d554001164a10fc69612a4c7d1fab6ed93b4f875",
+      "bytes": 2219
+    },
+    {
+      "file": "tbt/82.png",
+      "oemResource": "/Resource Files/Images/tbt/82.png",
+      "sha256": "a4163294adda158024356955b559c17f2eee164ff02332e54412115d6c26ab66",
+      "bytes": 2116
+    },
+    {
+      "file": "tbt/83.png",
+      "oemResource": "/Resource Files/Images/tbt/83.png",
+      "sha256": "bd11a5c45f5c031f127949d91b5aaf4d407a4033f5355ed07113f8d068275fd6",
+      "bytes": 2179
+    }
+  ],
+  "derivedImages": [
+    {
+      "file": "roundabout-right-traffic.png",
+      "sourceResource": "/Resource Files/Images/tbt/42.png",
+      "operation": "Remove central exit numeral component; retain original circulation arrows",
+      "removedBounds": [
+        20,
+        22,
+        27,
+        36
+      ],
+      "sha256": "f0f925ad8fa0bee84daddfe86d0f3eb6a5e0ed58f60e3783541b753621316230"
+    },
+    {
+      "file": "roundabout-left-traffic.png",
+      "sourceResource": "/Resource Files/Images/tbt/74.png",
+      "operation": "Remove central exit numeral component; retain original circulation arrows",
+      "removedBounds": [
+        23,
+        21,
+        30,
+        35
+      ],
+      "sha256": "2f575d7d4316abc9abb48c286c4b8773e585e75fccaad39df3463558a5041e00"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="mazda_hotspot_mode_description">優先使用已儲存的車機熱點資訊；未填寫時自動建立本機 5 GHz 熱點。建立失敗後，請手動開啟車機熱點並在此儲存名稱與密碼。</string>
+    <string name="mazda_hotspot_automatic">尚未儲存車機熱點資訊，連線時將自動建立本機 5 GHz 熱點。</string>
+    <string name="mazda_wifi_off_title">建議關閉車機 Wi-Fi</string>
+    <string name="mazda_wifi_off_message">車機背景搜尋 Wi-Fi 網路可能導致 CarPlay 聲音或畫面卡頓。請關閉車機 WLAN，熱點仍可保持開啟。iPhone 的 Wi-Fi 請保持開啟。</string>
+    <string name="mazda_connect_anyway">仍然連線</string>
+    <string name="mazda_local_hotspot_failed_title">本機熱點建立失敗</string>
+    <string name="mazda_local_hotspot_failed_message">請在車機系統設定中開啟熱點，建議選擇 5 GHz，再將名稱與密碼填入 DiPlay 的「設定 → 熱點連線」。既有資訊會自動填入，請確認與車機熱點一致。</string>
+</resources>

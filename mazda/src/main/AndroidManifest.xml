@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <queries>
+        <package android:name="com.android.car" />
+        <package android:name="com.tinnove.mediacenter" />
+    </queries>
+
+    <application
+        android:name="com.shilapi.xcertplay.mazda.MzdHudApplication"
+        android:allowBackup="false"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:icon="@drawable/ic_mazda_launcher"
+        android:label="@string/app_name"
+        android:localeConfig="@xml/locales_config"
+        android:roundIcon="@drawable/ic_mazda_launcher"
+        android:supportsRtl="true"
+        android:resizeableActivity="true"
+        android:theme="@style/Theme.Xcertplay">
+
+        <meta-data android:name="com.shilapi.vehicle.mzd.HUD_ENABLED" android:value="${mzdHudEnabled}" />
+        <meta-data android:name="com.shilapi.vehicle.mzd.HUD_AUTOMATIC_A2DP_HANDOVER" android:value="${mzdHudAutomaticA2dpHandover}" />
+        <meta-data android:name="com.shilapi.vehicle.mzd.HUD_MEDIA_SOURCE_TYPE" android:value="${mzdHudMediaSourceType}" />
+
+        <meta-data
+            android:name="dockUiVisibility"
+            android:value="1" />
+        <meta-data
+            android:name="KEY_HIDE_SYSTEMBAR"
+            android:value="true" />
+
+        <activity android:name="com.shilapi.xcertplay.DiPlayActivity"
+            android:theme="@style/Theme.Xcertplay.Mazda" tools:replace="android:theme" />
+        <activity android:name="com.shilapi.xcertplay.CarPlayHostActivity"
+            android:launchMode="singleTop"
+            android:taskAffinity="${applicationId}"
+            android:theme="@style/Theme.Xcertplay.Mazda"
+            tools:replace="android:launchMode,android:taskAffinity,android:theme" />
+
+        <meta-data
+            android:name="android.allow_multiple_resumed_activities"
+            android:value="true" />
+
+        <receiver
+            android:name="com.shilapi.xcertplay.mazda.MzdPackageReplacedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name="com.shilapi.xcertplay.BootReceiver"
+            android:enabled="true"
+            tools:replace="android:enabled" />
+
+        <receiver
+            android:name="com.shilapi.xcertplay.PhoneBluetoothReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.bluetooth.device.action.ACL_CONNECTED" />
+            </intent-filter>
+        </receiver>
+
+        <service android:name="com.shilapi.xcertplay.shared.MyCarAppService" tools:node="remove" />
+        <meta-data android:name="androidx.car.app.minCarApiLevel" tools:node="remove" />
+    </application>
+
+</manifest>

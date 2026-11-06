@@ -1,0 +1,7 @@
+<resources>
+    <string name="settings_spatial_audio">Пространственный звук (экспериментально)</string>
+    <string name="settings_spatial_audio_description">Воспроизводит многоканальную музыку из приложения через аудиосистему автомобиля. Требуется поддержка со стороны приложения и композиции. После изменения настройки переподключите CarPlay.</string>
+    <string name="settings_spatial_audio_unavailable">Эта версия или автомобиль не поддерживает пространственный звук. Обычную музыку можно слушать как раньше. После изменения настройки переподключите CarPlay.</string>
+    <string name="settings_spatial_pcm_dcx">Звук Dolby (экспериментально)</string>
+    <string name="settings_spatial_pcm_dcx_description">Применяет обработку Dolby к многоканальной музыке из приложения перед воспроизведением. Сначала включите пространственный звук; стереомузыка не изменяется. После изменения настройки переподключите CarPlay.</string>
+</resources>

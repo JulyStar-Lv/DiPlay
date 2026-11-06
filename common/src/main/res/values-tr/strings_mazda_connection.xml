@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="mazda_hotspot_mode_description">Önce kayıtlı araç erişim noktası bilgileri kullanılır. Kayıt yoksa DiPlay yerel bir 5 GHz erişim noktası oluşturur. Başarısız olursa araç erişim noktasını açıp bilgilerini buraya kaydedin.</string>
+    <string name="mazda_hotspot_automatic">Araç erişim noktası bilgileri kayıtlı değil. Bağlanırken DiPlay yerel bir 5 GHz erişim noktası oluşturacak.</string>
+    <string name="mazda_wifi_off_title">Araç Wi-Fi bağlantısını kapatmanız önerilir</string>
+    <string name="mazda_wifi_off_message">Aracın arka planda Wi-Fi araması CarPlay sesinde veya görüntüsünde takılmalara yol açabilir. Araç WLAN bağlantısını kapatın; erişim noktası açık kalabilir. iPhone Wi-Fi bağlantısını açık tutun.</string>
+    <string name="mazda_connect_anyway">Yine de bağlan</string>
+    <string name="mazda_local_hotspot_failed_title">Yerel erişim noktası oluşturulamadı</string>
+    <string name="mazda_local_hotspot_failed_message">Araç ayarlarından erişim noktasını, tercihen 5 GHz olarak açın. Sonra adını ve şifresini DiPlay Ayarlar → Erişim noktası bağlantısı alanına girin. Kayıtlı bilgiler doldurulur.</string>
+</resources>
