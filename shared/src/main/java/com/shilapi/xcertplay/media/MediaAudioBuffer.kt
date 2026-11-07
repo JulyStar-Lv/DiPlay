@@ -33,7 +33,7 @@ object MediaAudioBuffer {
             startBytes = maxOf(minBufferBytes, MIN_START_BUFFER_BYTES),
         )
         if (!isMedia) return lowLatency
-        val bytesPerSecond = sampleRate.toLong() * channels.coerceIn(1, 2) * 2
+        val bytesPerSecond = sampleRate.toLong() * channels.coerceIn(1, 12) * 2
         val start = (bytesPerSecond * sanitize(mediaMillis) / 1000).toInt()
         val capacity = (bytesPerSecond * (sanitize(mediaMillis) + HEADROOM_MILLIS) / 1000).toInt()
         return Plan(

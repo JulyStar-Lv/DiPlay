@@ -1,0 +1,349 @@
+package com.shilapi.xcertplay.mazda
+
+import android.content.res.Resources
+import android.content.pm.ApplicationInfo
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Rect
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
+import android.os.Handler
+import android.view.MotionEvent
+import android.view.TextureView
+import android.view.View
+import android.view.ViewGroup
+import android.widget.Button
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
+import com.shilapi.xcertplay.CarPlayHostActivity
+import com.shilapi.xcertplay.DiPlayActivity
+import com.shilapi.xcertplay.InterfaceSize
+import com.shilapi.xcertplay.host.R
+import com.shilapi.xcertplay.orchestration.CarPlayStatus
+import java.io.File
+import java.util.concurrent.ExecutorService
+import org.junit.Assert.*
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.Robolectric
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
+import org.robolectric.annotation.Implementation
+import org.robolectric.annotation.Implements
+import org.robolectric.annotation.RealObject
+import org.robolectric.shadow.api.Shadow
+import org.robolectric.shadows.ShadowResources
+import org.robolectric.util.ReflectionHelpers
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], qualifiers = "zh-rCN-sw1440dp-w5120dp-h1440dp-mdpi",
+    shadows = [MzdConnectionScaleTest.MazdaResources::class])
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+class MzdConnectionScaleTest {
+    @Test fun timeoutActionsShareARowAndRemainReachableAtNarrowWidthsAndLargeFonts() {
+        InterfaceSize.save(RuntimeEnvironment.getApplication(), InterfaceSize.AUTO)
+        for ((locale, font) in listOf("zh-rCN" to 1f, "zh-rCN" to 1.5f, "ar" to 1.5f)) {
+            RuntimeEnvironment.setQualifiers("$locale-sw1440dp-w5120dp-h1440dp-mdpi")
+            RuntimeEnvironment.setFontScale(font)
+            val app = RuntimeEnvironment.getApplication()
+            app.applicationInfo.flags = app.applicationInfo.flags or ApplicationInfo.FLAG_SUPPORTS_RTL
+            for (width in listOf(720, 1728, 2496)) {
+                withPages { _, waiting, root, host ->
+                    root.layoutDirection = if (locale == "ar") View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
+                    waiting.layoutDirection = root.layoutDirection
+                    waiting.stage.text = host.getString(R.string.first_tcp_timeout) + "\n" +
+                        host.getString(R.string.wireless_startup_retries_exhausted)
+                    waiting.instructions.visibility = View.GONE
+                    waiting.help.text = host.getString(R.string.connection_help_iphone_wifi)
+                    waiting.help.visibility = View.VISIBLE
+                    waiting.hint.text = ""
+                    val retry = ReflectionHelpers.getField<Button>(host, "startupRetryButton")
+                    retry.visibility = View.VISIBLE
+                    val back = descendants(waiting).filterIsInstance<Button>().single {
+                        it.text == host.getString(R.string.back_to_diplay)
+                    }
+                    layout(root, width)
+                    assertSame("Recovery and back must use the same responsive action group", back.parent, retry.parent)
+                    val actions = back.parent as LinearLayout
+                    assertEquals(if (width == 720) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL, actions.orientation)
+                    assertEquals(retry.height, back.height)
+                    if (width != 720) {
+                        assertEquals(retry.top, back.top)
+                        assertEquals(retry.width, back.width)
+                        if (locale == "ar") assertTrue(retry.left >= back.right)
+                        else assertTrue(retry.right <= back.left)
+                    }
+                    val scroll = descendants(waiting).filterIsInstance<ScrollView>().single()
+                    if (font > 1f || width == 720) scroll.scrollTo(0, scroll.getChildAt(0).height)
+                    for (button in listOf(retry, back)) {
+                        val shape = (button.background as RippleDrawable).getDrawable(0) as GradientDrawable
+                        assertEquals("Timeout actions must share the page's pill shape",
+                            button.height / 2f, shape.cornerRadius, 0f)
+                        val visible = Rect()
+                        assertTrue("Timeout action must be reachable at $width / $locale / $font", button.getLocalVisibleRect(visible))
+                        assertEquals(button.height, visible.height())
+                        assertEquals(button.width, visible.width())
+                        assertTrue("Button labels must fit vertically", button.layout.height <=
+                            button.height - button.compoundPaddingTop - button.compoundPaddingBottom)
+                    }
+                    val bitmap = Bitmap.createBitmap(width, 1080, Bitmap.Config.ARGB_8888)
+                    try {
+                        waiting.draw(Canvas(bitmap))
+                        val output = File("build/reports/mazda-ui/timeout-actions-$width-$locale-font-$font.png")
+                        output.parentFile!!.mkdirs()
+                        output.outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+                    } finally { bitmap.recycle() }
+                }
+            }
+        }
+    }
+
+    @Test fun hostRecoveryGuidanceIsVisibleInTheScaledMazdaPageAndClearsOnRetry() {
+        InterfaceSize.save(RuntimeEnvironment.getApplication(), InterfaceSize.AUTO)
+        for (locale in listOf("zh-rCN", "ar")) {
+            RuntimeEnvironment.setQualifiers("$locale-sw1440dp-w5120dp-h1440dp-mdpi")
+            RuntimeEnvironment.setFontScale(1.5f)
+            val app = RuntimeEnvironment.getApplication()
+            app.applicationInfo.flags = app.applicationInfo.flags or ApplicationInfo.FLAG_SUPPORTS_RTL
+            for (width in listOf(1728, 2496)) for (night in listOf(false, true)) {
+                withPages { _, waiting, root, host ->
+                    root.layoutDirection = if (locale == "ar") View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
+                    waiting.layoutDirection = root.layoutDirection
+                    waiting.paint(night)
+                    assertSame(waiting.instructions, ReflectionHelpers.getField<TextView>(host, "connectionInstructionsView"))
+                    assertSame(waiting.help, ReflectionHelpers.getField<TextView>(host, "connectionHelpView"))
+                    val showHelp = host.javaClass.getDeclaredMethod("showConnectionHelp", CarPlayStatus.Failed::class.java)
+                        .apply { isAccessible = true }
+                    showHelp.invoke(host, CarPlayStatus.Failed("RFCOMM socket closed"))
+                    layout(root, width)
+                    assertEquals(View.GONE, waiting.instructions.visibility)
+                    assertEquals(View.VISIBLE, waiting.help.visibility)
+                    assertTrue(descendants(root).contains(waiting.help))
+                    assertEquals(host.getString(R.string.connection_help_bluetooth), waiting.help.text.toString())
+                    assertEquals(waiting.instructions.textSize, waiting.help.textSize, 0f)
+                    assertEquals(waiting.instructions.currentTextColor, waiting.help.currentTextColor)
+                    assertTrue(waiting.help.width > 0 && waiting.help.width <= waiting.width)
+                    if (locale == "ar") {
+                        val close = descendants(waiting).filterIsInstance<android.widget.ImageButton>().single()
+                        val settings = descendants(waiting).filterIsInstance<Button>().single {
+                            it.text == waiting.context.getString(R.string.settings)
+                        }
+                        assertTrue("Recovery page must keep the mirrored Arabic header", close.left > settings.right)
+                    }
+                    val bitmap = Bitmap.createBitmap(width, 1080, Bitmap.Config.ARGB_8888)
+                    waiting.draw(Canvas(bitmap))
+                    val module = File(requireNotNull(System.getProperty("user.dir"))).let {
+                        if (it.name == "common") it else File(it, "common")
+                    }
+                    val output = File(module, "build/reports/mazda-ui/recovery-$width-${if (night) "dark" else "light"}-$locale-font-1.5.png")
+                    requireNotNull(output.parentFile).mkdirs()
+                    output.outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+                    bitmap.recycle()
+                    showHelp.invoke(host, null)
+                    assertEquals(View.VISIBLE, waiting.instructions.visibility)
+                    assertEquals(View.GONE, waiting.help.visibility)
+                }
+            }
+        }
+    }
+
+    @Test fun actualHostUsesTheHomeScaleForEveryChoiceWithoutScalingVideoOrTouch() {
+        for (choice in InterfaceSize.CHOICES) {
+            InterfaceSize.save(RuntimeEnvironment.getApplication(), choice)
+            withPages { home, waiting, root, host ->
+                layout(home, 2496)
+                layout(root, 2496)
+                assertMatchingScale(home, waiting)
+                val density = if (choice == InterfaceSize.AUTO) 2f else choice / 100f
+                assertEquals(density, waiting.resources.displayMetrics.density, .01f)
+                assertEquals(1f, host.resources.displayMetrics.density, 0f)
+                assertEquals(160, host.resources.configuration.densityDpi)
+                assertEquals(5120, host.resources.configuration.screenWidthDp)
+                val canvas = root.getChildAt(0) as MzdVideoCanvas
+                val video = canvas.getChildAt(0) as TextureView
+                val touches = ReflectionHelpers.getField<View>(host, "gestureOverlay")
+                for (layer in listOf(root, canvas, video, touches)) {
+                    assertSame(host, layer.context)
+                    assertEquals(2496, layer.width)
+                    assertEquals(1080, layer.height)
+                }
+                val retry = descendants(waiting).filterIsInstance<Button>().single {
+                    it.text == host.getString(R.string.retry_carplay_connection)
+                }
+                retry.visibility = View.VISIBLE
+                layout(root, 2496)
+                assertEquals(home.connectButton.textSize, retry.textSize, 0f)
+                assertEquals(home.connectButton.height, retry.height)
+                assertEquals(home.connectButton.paddingLeft, retry.paddingLeft)
+            }
+        }
+    }
+
+    @Test fun connectionControlsReceiveTouchesAboveTheCarPlayGestureLayer() {
+        withPages { _, waiting, root, host ->
+            layout(root, 2496)
+            // A full-screen gesture consumer must not swallow the waiting page's close button.
+            val gestures = ReflectionHelpers.getField<View>(host, "gestureOverlay")
+            gestures.setOnTouchListener { _, _ -> true }
+            val close = descendants(waiting).filterIsInstance<android.widget.ImageButton>().single()
+            var receivedTaps = 0
+            // Observe dispatch itself: an unattached fixture defers Button's posted click callback.
+            close.setOnTouchListener { _, event ->
+                if (event.actionMasked == MotionEvent.ACTION_UP) receivedTaps++
+                true
+            }
+            val bounds = Rect()
+            close.getDrawingRect(bounds)
+            root.offsetDescendantRectToMyCoords(close, bounds)
+            fun tap() {
+                for (action in listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP)) {
+                    val event = MotionEvent.obtain(0, 0, action, bounds.exactCenterX(), bounds.exactCenterY(), 0)
+                    root.dispatchTouchEvent(event)
+                    event.recycle()
+                }
+            }
+            tap()
+            assertEquals("The connection page must stay above the video gesture layer", 1, receivedTaps)
+            // Negative control: putting the page below the consumer must reproduce the swallowed tap.
+            root.removeView(waiting)
+            root.addView(waiting, root.indexOfChild(gestures))
+            layout(root, 2496)
+            tap()
+            assertEquals("The test must detect the old fixed-index layering regression", 1, receivedTaps)
+        }
+    }
+
+    @Test fun matchedPagesRenderAtFullAndCompactSizesWithLargeFontsAndRtl() {
+        InterfaceSize.save(RuntimeEnvironment.getApplication(), InterfaceSize.AUTO)
+        for ((locale, font) in listOf("zh-rCN" to 1f, "zh-rCN" to 1.5f, "ar" to 1.5f)) {
+            RuntimeEnvironment.setQualifiers("$locale-sw1440dp-w5120dp-h1440dp-mdpi")
+            RuntimeEnvironment.setFontScale(font)
+            val app = RuntimeEnvironment.getApplication()
+            app.applicationInfo.flags = app.applicationInfo.flags or ApplicationInfo.FLAG_SUPPORTS_RTL
+            for (width in listOf(1728, 2496)) for (night in listOf(false, true)) {
+                withPages { home, waiting, root, _ ->
+                    assertEquals(font, home.resources.configuration.fontScale, 0f)
+                    assertEquals(font, waiting.resources.configuration.fontScale, 0f)
+                    val direction = if (locale == "ar") View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
+                    home.layoutDirection = direction
+                    root.layoutDirection = direction
+                    waiting.layoutDirection = direction
+                    home.stage.text = home.context.getString(R.string.connecting_to_your_iphone)
+                    waiting.stage.text = waiting.context.getString(R.string.looking_for_your_paired_iphone)
+                    home.paint(night)
+                    waiting.paint(night)
+                    layout(home, width)
+                    layout(root, width)
+                    assertMatchingScale(home, waiting)
+                    if (locale == "ar") {
+                        val close = descendants(waiting).filterIsInstance<android.widget.ImageButton>().single()
+                        val settings = descendants(waiting).filterIsInstance<Button>().single {
+                            it.text == waiting.context.getString(R.string.settings)
+                        }
+                        assertTrue("Arabic header must mirror its controls", close.left > settings.right)
+                    }
+                    for ((name, view) in listOf("home" to home, "waiting" to waiting)) {
+                        val bitmap = Bitmap.createBitmap(width, 1080, Bitmap.Config.ARGB_8888)
+                        view.draw(Canvas(bitmap))
+                        val module = File(requireNotNull(System.getProperty("user.dir"))).let {
+                            if (it.name == "common") it else File(it, "common")
+                        }
+                        val output = File(module, "build/reports/mazda-ui/matched-$name-$width-${if (night) "dark" else "light"}-$locale-font-$font.png")
+                        requireNotNull(output.parentFile).mkdirs()
+                        output.outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+                        bitmap.recycle()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun withPages(check: (MzdHomeView, MzdConnectionView, FrameLayout, CarPlayHostActivity) -> Unit) {
+        // Use real Activity contexts but skip onCreate's sensors, networking and session startup.
+        val homeActivity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
+        val host = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        try {
+            homeActivity.setTheme(R.style.Theme_Xcertplay)
+            host.setTheme(R.style.Theme_Xcertplay)
+            val home = MzdHomeView(homeActivity, false, {}, {}, {}, {}, {})
+            ReflectionHelpers.setField(host, "wirelessEnabled", true)
+            val root = ReflectionHelpers.callInstanceMethod<FrameLayout>(host, "buildContentView")
+            val waiting = ReflectionHelpers.getField<MzdConnectionView>(host, "connectionPanel")
+            check(home, waiting, root, host)
+        } finally {
+            homeActivity.finish()
+            host.finish()
+            ReflectionHelpers.getField<Handler>(host, "mainHandler").removeCallbacksAndMessages(null)
+            ReflectionHelpers.getField<ExecutorService>(host, "teardownExecutor").shutdownNow()
+            ReflectionHelpers.getField<ExecutorService>(host, "airPlayCommandExecutor").shutdownNow()
+        }
+    }
+
+    private fun assertMatchingScale(home: MzdHomeView, waiting: MzdConnectionView) {
+        for (page in listOf(home, waiting)) {
+            val exit = descendants(page).filterIsInstance<android.widget.ImageButton>().single()
+            val brand = descendants(page).filterIsInstance<TextView>().single {
+                it.text == page.context.getString(R.string.diplay)
+            }
+            val logo = descendants(page).filterIsInstance<android.widget.ImageView>().single {
+                it.contentDescription == page.context.getString(R.string.carplay)
+            }
+            assertEquals(64, exit.width)
+            assertEquals(64, exit.height)
+            assertEquals(64, exit.top + exit.height / 2)
+            assertEquals(64, brand.top + brand.height / 2)
+            assertEquals(64, logo.top + logo.height / 2)
+            assertEquals(40, logo.width)
+            assertEquals(40, logo.height)
+            assertEquals(40f, brand.textSize, 0f)
+            if (page.layoutDirection == View.LAYOUT_DIRECTION_RTL) {
+                assertEquals(40, (exit.parent as View).width - exit.right)
+                assertEquals(32, exit.left - logo.right)
+                assertEquals(12, logo.left - brand.right)
+            } else {
+                assertEquals(40, exit.left)
+                assertEquals(32, logo.left - exit.right)
+                assertEquals(12, brand.left - logo.right)
+            }
+        }
+        assertEquals(home.resources.displayMetrics.density, waiting.resources.displayMetrics.density, 0f)
+        assertEquals(home.stage.textSize, waiting.stage.textSize, 0f)
+        assertEquals(home.instructions.textSize, waiting.instructions.textSize, 0f)
+        fun text(view: View, id: Int) = descendants(view).filterIsInstance<TextView>().single {
+            it.text == view.context.getString(id)
+        }
+        for (id in listOf(R.string.carplay, R.string.settings, R.string.diplay)) {
+            assertEquals(text(home, id).textSize, text(waiting, id).textSize, 0f)
+        }
+        val back = text(waiting, R.string.back_to_diplay)
+        assertEquals(home.connectButton.textSize, back.textSize, 0f)
+        assertEquals(home.connectButton.height, back.height)
+        val homeArt = descendants(home).single { it.javaClass.simpleName == "ConnectionIllustration" }
+        val waitingArt = descendants(waiting).single { it.javaClass.simpleName == "ConnectionIllustration" }
+        assertEquals(homeArt.width, waitingArt.width)
+        assertEquals(homeArt.height, waitingArt.height)
+    }
+
+    private fun layout(view: View, width: Int) {
+        view.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY))
+        view.layout(0, 0, width, 1080)
+    }
+
+    private fun descendants(view: View): List<View> = buildList {
+        add(view)
+        if (view is ViewGroup) for (i in 0 until view.childCount) addAll(descendants(view.getChildAt(i)))
+    }
+
+    @Implements(Resources::class)
+    class MazdaResources : ShadowResources() {
+        @RealObject private lateinit var resources: Resources
+        @Implementation fun getBoolean(id: Int): Boolean = if (id == R.bool.config_mazda) true else
+            Shadow.directlyOn(resources, Resources::class.java, "getBoolean",
+                ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType, id))
+    }
+}

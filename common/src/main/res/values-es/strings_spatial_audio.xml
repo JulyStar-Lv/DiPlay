@@ -1,0 +1,7 @@
+<resources>
+    <string name="settings_spatial_audio">Audio espacial (experimental)</string>
+    <string name="settings_spatial_audio_description">Reproduce en el sistema de sonido del coche la música multicanal que proporciona la app. La app y la canción deben ser compatibles. Vuelve a conectar CarPlay después de cambiar esta opción.</string>
+    <string name="settings_spatial_audio_unavailable">Esta versión o este coche no admite audio espacial. Puedes seguir escuchando música normal. Vuelve a conectar CarPlay después de cambiar esta opción.</string>
+    <string name="settings_spatial_pcm_dcx">Sonido Dolby (experimental)</string>
+    <string name="settings_spatial_pcm_dcx_description">Aplica procesamiento Dolby a la música multicanal que proporciona la app antes de reproducirla. Activa primero el audio espacial; la música estéreo no se ve afectada. Vuelve a conectar CarPlay después de cambiar esta opción.</string>
+</resources>

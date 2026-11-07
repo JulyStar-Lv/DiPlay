@@ -2,6 +2,7 @@ package com.shilapi.xcertplay
 
 import android.content.Context
 import android.os.Build
+import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.airplay.AirPlayDisplaySettings
 import com.shilapi.xcertplay.airplay.AirPlayPhysicalSizeBasis
 import com.shilapi.xcertplay.airplay.CarPlayDisplayScale
@@ -76,6 +77,8 @@ object AirPlayPersistence {
     private const val KEY_MEDIA_BUFFER_MS = "media_buffer_ms" // wireless; was shared by both transports
     private const val KEY_WIRED_MEDIA_BUFFER_MS = "wired_media_buffer_ms"
     private const val KEY_MAIN_BUFFERED_AUDIO = "main_buffered_audio"
+    private const val KEY_SPATIAL_AUDIO = "spatial_audio_experimental"
+    private const val KEY_SPATIAL_PCM_DCX = "spatial_pcm_dcx_experimental"
     private const val KEY_SPEECH_WITHOUT_8_16_KHZ = "speech_without_8_16_khz"
     private const val KEY_CALL_AT_CALL_RATE = "call_at_call_rate"
     private const val KEY_CAR_BLUETOOTH_AUDIO = "car_bluetooth_audio"
@@ -629,11 +632,13 @@ object AirPlayPersistence {
             .apply()
     }
 
-    fun loadOemLabel(context: Context): String =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_OEM_LABEL, DEFAULT_OEM_LABEL)
+    fun loadOemLabel(context: Context): String {
+        val defaultLabel = context.getString(R.string.config_oem_label)
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_OEM_LABEL, defaultLabel)
             // iOS hides the car icon without a label.
-            .orEmpty().ifBlank { DEFAULT_OEM_LABEL }
+            .orEmpty().ifBlank { defaultLabel }
+    }
 
     fun saveOemLabel(context: Context, oemLabel: String) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
@@ -710,6 +715,24 @@ object AirPlayPersistence {
 
     fun saveMainBufferedAudio(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_MAIN_BUFFERED_AUDIO, enabled).apply()
+    }
+
+    fun loadSpatialAudio(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_SPATIAL_AUDIO, false)
+
+    fun saveSpatialAudio(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_SPATIAL_AUDIO, enabled).apply()
+    }
+
+    fun isSpatialPcmDcxExperiment(context: Context): Boolean =
+        context.packageName == "com.thunder.carplay" || context.packageName == "com.thunder.carplay.mazdatest"
+
+    /** Independent of the spatial setting, including upgrades with spatial audio already enabled. */
+    fun loadSpatialPcmDcx(context: Context): Boolean = isSpatialPcmDcxExperiment(context) &&
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_SPATIAL_PCM_DCX, false)
+
+    fun saveSpatialPcmDcx(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_SPATIAL_PCM_DCX, enabled).apply()
     }
 
     /** Do not offer 8 and 16 kHz PCM for navigation prompts and alerts; applies at reconnect. */

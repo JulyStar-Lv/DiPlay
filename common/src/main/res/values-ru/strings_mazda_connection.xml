@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="mazda_hotspot_mode_description">Сначала используются сохранённые данные точки доступа автомобиля. Если их нет, DiPlay создаёт локальную точку 5 ГГц. При неудаче включите точку автомобиля и сохраните здесь её данные.</string>
+    <string name="mazda_hotspot_automatic">Данные точки доступа автомобиля не сохранены. При подключении DiPlay создаст локальную точку 5 ГГц.</string>
+    <string name="mazda_wifi_off_title">Рекомендуется выключить Wi-Fi автомобиля</string>
+    <string name="mazda_wifi_off_message">Поиск сетей Wi-Fi автомобилем может вызывать прерывания звука или изображения CarPlay. Выключите WLAN автомобиля; точка доступа может оставаться включённой. Wi-Fi на iPhone оставьте включённым.</string>
+    <string name="mazda_connect_anyway">Всё равно подключиться</string>
+    <string name="mazda_local_hotspot_failed_title">Не удалось создать локальную точку доступа</string>
+    <string name="mazda_local_hotspot_failed_message">Включите точку доступа в настройках автомобиля, желательно на 5 ГГц. Затем введите её имя и пароль в DiPlay: Настройки → Подключение к точке доступа. Сохранённые данные будут подставлены.</string>
+</resources>

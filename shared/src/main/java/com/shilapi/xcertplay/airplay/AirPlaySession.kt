@@ -34,7 +34,8 @@ interface AirPlaySessionListener {
     fun onCornerMask(session: AirPlaySession, png: ByteArray, displayWidth: Int) {}
     fun onTransportError(message: String) {}
     fun onDeviceInfo(session: AirPlaySession, info: AirPlayDeviceInfo) {}
-    fun onHostUiRequested(session: AirPlaySession) {}
+    /** Return true when the UI handles returning to the car itself; false uses the default HOME. */
+    fun onHostUiRequested(session: AirPlaySession): Boolean = false
     fun onCommand(session: AirPlaySession, type: String, params: Map<String, Any?>) {}
     /** Video in car: a playback message on a remote control session (X-Apple-StreamID). */
     fun onRemoteControlMessage(session: AirPlaySession, streamId: Long, message: Map<String, Any?>) {}
@@ -50,6 +51,7 @@ interface AirPlayMediaHandler {
     fun onScreen(session: AirPlaySession, type: Int, stream: Map<String, Any?>): Int? = null
     fun onAudio(session: AirPlaySession, type: Int, stream: Map<String, Any?>): Map<String, Any?>? = null
     fun onDataStream(session: AirPlaySession, stream: Map<String, Any?>): Map<String, Any?>? = null
+    fun onDataStreamTeardown(session: AirPlaySession, streamId: Long) {}
     /** CarPlay's main buffered audio (type 103): the SETUP response, or null to decline it. */
     fun onBufferedAudio(session: AirPlaySession, stream: Map<String, Any?>): Map<String, Any?>? = null
     /**
@@ -99,6 +101,8 @@ class AirPlaySession(
 
     private val closed = AtomicBoolean(false)
     internal val isClosed: Boolean get() = closed.get()
+    internal val spatialAudioFormats: List<Int> get() = config.spatialAudioFormats.filter { it == 65 || it == 68 }
+    internal val bufferedTimelineExperiment: Int get() = config.bufferedTimelineExperiment
     private val notified = AtomicBoolean(false)
     private var eventServer: ServerSocket? = null
     private var eventSocket: Socket? = null
@@ -123,6 +127,8 @@ class AirPlaySession(
     val controllerId: String? get() = pairVerify.verifiedControllerId
     val sharedSecret: ByteArray? get() = pairVerify.shared?.copyOf()
     val videoInCar: Boolean get() = config.videoInCar
+    @Volatile internal var routeSharingNegotiated: Boolean = false
+        private set
     private val videoPlaybackAvailability = VideoPlaybackAvailability { allowed ->
         sendCommand(
             linkedMapOf(
@@ -560,7 +566,8 @@ class AirPlaySession(
                     ?: return RtspMessage.Response(status = 400)
             }
             val response = media.onBufferedAudioControl(this, request.method, body)
-            if (request.method != "GETANCHOR") debugLog("airplay ${request.method} $body -> ${response ?: "ok"}")
+            if (request.method == "SETMAGICCOOKIE") debugLog("airplay SETMAGICCOOKIE received")
+            else if (request.method != "GETANCHOR") debugLog("airplay ${request.method} $body -> ${response ?: "ok"}")
             return if (response == null) RtspMessage.Response(status = 200) else RtspMessage.Response(
                 headers = mapOf("Content-Type" to PLIST_CONTENT_TYPE),
                 body = BplistCodec.encode(response),
@@ -688,6 +695,8 @@ class AirPlaySession(
             response["keepAlivePort"] = openKeepAlive()
         }
         val features = setupEnabledFeatures(config, dict["features"] as? List<*>)
+        routeSharingNegotiated = VehicleRouteSharing.FEATURE in features
+        debugLog("Route sharing: negotiated=$routeSharingNegotiated")
         val videoPlaybackEnabled = VideoInCar.FEATURE in features
         val videoDelivery = videoPlaybackAvailability.setFeatureEnabled(videoPlaybackEnabled)
         debugLog("airplay video playback negotiated=$videoPlaybackEnabled availability=$videoDelivery")
@@ -792,6 +801,13 @@ class AirPlaySession(
             null
         }
         val types = teardownStreamTypes(decodedBody)
+        val teardownStreams = (decodedBody as? Map<*, *>)?.get("streams") as? List<*>
+        teardownStreams.orEmpty().forEach { entry ->
+            val stream = entry as? Map<*, *> ?: return@forEach
+            if ((stream["type"] as? Number)?.toInt() == STREAM_TYPE_DATA) {
+                (stream["streamID"] as? Number)?.toLong()?.let { media.onDataStreamTeardown(this, it) }
+            }
+        }
 
         debugLog(
             "airplay TEARDOWN types=${types ?: "all"} activeBefore=$activeStreams " +
@@ -985,7 +1001,7 @@ class AirPlaySession(
         const val STREAM_TYPE_MAIN_HIGH_AUDIO = 102
         const val STREAM_TYPE_DATA = 130
         const val STREAM_TYPE_MAIN_BUFFERED_AUDIO = 103
-        private val BUFFERED_AUDIO_METHODS = setOf("SETRATE", "SETRATEANCHORTIME", "GETANCHOR", "FLUSHBUFFERED")
+        private val BUFFERED_AUDIO_METHODS = setOf("SETRATE", "SETRATEANCHORTIME", "GETANCHOR", "FLUSHBUFFERED", "SETMAGICCOOKIE")
 
         const val READ_CHUNK_BYTES = 16 * 1024
         const val ZOOM_DIRECTION_IN = 0
@@ -1026,13 +1042,14 @@ internal fun setupEnabledFeatures(config: AirPlayConfig, proposed: List<*>?): Li
     if (config.main.useIphoneCornerMask && proposed.orEmpty().contains("cornerMasks")) features.add("cornerMasks")
     if (config.videoInCar && proposed.orEmpty().contains(VideoInCar.FEATURE)) features.add(VideoInCar.FEATURE)
     if (config.bufferedAudioOutputEnabled && proposed.orEmpty().contains(MAIN_BUFFERED_FEATURE)) features.add(MAIN_BUFFERED_FEATURE)
+    if (config.routeSharing && proposed.orEmpty().contains(VehicleRouteSharing.FEATURE)) features.add(VehicleRouteSharing.FEATURE)
     return features
 }
 
 /**
  * The stream types a TEARDOWN body closes, or null when it names none (the whole session). Several
- * type-130 streams can be open, the iAP tunnel (streamID 1) and video in car's data streams; tearing
- * down one of the latter must not close the iAP tunnel.
+ * type-130 streams can be open. Entries with streamID are handled individually by
+ * onDataStreamTeardown; a type-130 entry without an ID releases all data streams.
  */
 internal fun teardownStreamTypes(body: Any?): List<Int>? {
     val entries = ((body as? Map<*, *>)?.get("streams") as? List<*>).orEmpty().mapNotNull { entry ->
@@ -1041,7 +1058,7 @@ internal fun teardownStreamTypes(body: Any?): List<Int>? {
         type to (stream["streamID"] as? Number)?.toLong()
     }
     if (entries.isEmpty()) return null
-    return entries.filterNot { (type, streamId) -> type == 130 && streamId != null && streamId != 1L }.map { it.first }
+    return entries.filterNot { (type, streamId) -> type == 130 && streamId != null }.map { it.first }
 }
 
 internal fun safeClose(closeable: Closeable?) {

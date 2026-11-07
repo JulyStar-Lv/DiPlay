@@ -97,7 +97,7 @@ class VideoInCarTest {
         fun body(vararg streams: Map<String, Any?>) = mapOf("streams" to streams.toList())
 
         assertEquals(emptyList<Int>(), teardownStreamTypes(body(mapOf("type" to 130L, "streamID" to 3L))))
-        assertEquals(listOf(130), teardownStreamTypes(body(mapOf("type" to 130L, "streamID" to 1L))))
+        assertEquals(emptyList<Int>(), teardownStreamTypes(body(mapOf("type" to 130L, "streamID" to 1L))))
         assertEquals(listOf(130, 110), teardownStreamTypes(body(mapOf("type" to 130L), mapOf("type" to 110L))))
         assertNull(teardownStreamTypes(emptyMap<String, Any?>()))
         assertNull(teardownStreamTypes(null))

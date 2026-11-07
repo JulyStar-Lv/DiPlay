@@ -1,6 +1,14 @@
 plugins {
     id 'com.android.library'
 }
+
+def apacSource = project.hasProperty('diplayApacSource') ? file(project.property('diplayApacSource')) : null
+if (apacSource != null && !['include/apac/config.h', 'include/apac/decoder.h', 'src/decoder.cpp'].every {
+    new File(apacSource, it).isFile()
+}) {
+    throw new GradleException('APAC source is incomplete; provide the apac_decoder directory with include/apac and src.')
+}
+
 android {
     namespace = 'com.shilapi.xcertplay.shared'
     compileSdk = 37
@@ -9,6 +17,11 @@ android {
         minSdk = 24
         consumerProguardFiles 'ambient-consumer-rules.pro'
         targetSdk = 37
+        def timelineExperiment = providers.gradleProperty('diplayBufferedTimelineExperiment').orElse('0').get()
+        if (!(timelineExperiment in ['0', '1', '2', '3', '4', '5', '6', '7', '8'])) {
+            throw new GradleException('diplayBufferedTimelineExperiment must be 0 (control), 1 (anchor acknowledgement), 2 (original media time reply), 3 (stage 2 with diagnostics), 4 (feedback timestamp epoch), 5 (feedback sample clock), 6 (combined anchor acknowledgement), 7 (complete network time fields) or 8 (media-only resume reply)')
+        }
+        buildConfigField 'int', 'BUFFERED_TIMELINE_EXPERIMENT', timelineExperiment
 
         ndk {
             abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64'
@@ -17,6 +30,9 @@ android {
         externalNativeBuild {
             ndkBuild {
                 arguments 'APP_PLATFORM=android-24'
+                if (apacSource != null) {
+                    arguments "DIPLAY_APAC_SOURCE=${apacSource.absolutePath}"
+                }
             }
         }
 
@@ -29,6 +45,7 @@ android {
         }
     }
     buildFeatures {
+        buildConfig true
         // Geely/Lynk head-unit input API (com.geely.inputservice); declarations in src/main/aidl.
         aidl true
     }

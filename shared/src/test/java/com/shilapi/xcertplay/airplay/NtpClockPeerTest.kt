@@ -71,6 +71,25 @@ class NtpClockPeerTest {
         assertTrue("clock did not follow the peer: drift=${drift}s", drift > 3000)
     }
 
+    @Test
+    fun theFirstPhoneResponseCalibratesTheClockBeforeBufferedPlaybackCanStart() {
+        val ntp = NtpClock()
+        DatagramSocket(InetSocketAddress(iphone, 0)).use { phone ->
+            try {
+                phone.soTimeout = 3000
+                val port = ntp.listen()
+                ntp.start(iphone, phone.localPort)
+                val request = DatagramPacket(ByteArray(64), 64)
+                phone.receive(request)
+                val response = skewedResponse(request.data.copyOf(32))
+                phone.send(DatagramPacket(response, response.size, iphone, port))
+                val deadline = System.nanoTime() + 500_000_000L
+                while (driftSeconds(ntp) < 3000 && System.nanoTime() < deadline) Thread.sleep(5)
+                assertTrue("The first anchor would still use the head unit's wall clock", driftSeconds(ntp) > 3000)
+            } finally { ntp.close() }
+        }
+    }
+
     private companion object {
         const val ORIGINATE = 8
         const val RECEIVE = 16

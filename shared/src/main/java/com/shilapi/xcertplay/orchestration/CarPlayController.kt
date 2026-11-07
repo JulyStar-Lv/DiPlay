@@ -173,6 +173,9 @@ class CarPlayController(
     private val clearPairRecord: () -> Unit = {},
     private val locationProvider: Iap2LocationProvider? = null,
     private val vehicleStatusProvider: com.shilapi.xcertplay.transport.VehicleStatusProvider? = null,
+    displayFactory: com.shilapi.display.api.VehicleDisplayFactory = com.shilapi.display.api.VehicleDisplayFactory.NONE,
+    private val localHotspotFactory: ((Context, (String) -> Unit) -> WirelessHotspotManager)? = null,
+    private val firstTcpTimeoutMillis: Long = WirelessStartupPolicy.FIRST_TCP_MILLIS,
 ) : Closeable {
     init {
         require(!config.locationReportingEnabled || locationProvider != null) {
@@ -186,6 +189,10 @@ class CarPlayController(
     private enum class Phase { IDLE, MFI, WIRELESS, IPHONE, REENUMERATION, DATAPATHS, CONTROL }
 
     private val appContext = context.applicationContext
+    private val displaySource = if (displayFactory === com.shilapi.display.api.VehicleDisplayFactory.NONE) null else
+        com.shilapi.xcertplay.projection.carplay.CarPlayDisplaySource(displayFactory,
+            onFailure = { debugLog("vehicle display observer failed: $it") },
+            onNavigationDiagnostic = { Log.i("DiPlayNav", it) })
     private val diagnosticAttempt = diagnosticAttempts.incrementAndGet()
     private val diagnosticRun = AtomicInteger()
     private val usbManager: UsbManager? = context.getSystemService(UsbManager::class.java)
@@ -369,6 +376,7 @@ class CarPlayController(
             if (currentCornerMask?.session !== session) currentCornerMask = null
             val replacement = activeSession !== session
             if (replacement) {
+                displaySource?.start()
                 BydNavigationOutputs.start(appContext)
                 BydNavigationOutputs.carPlaySessionStarted()
                 com.shilapi.xcertplay.glance.CarPlayGlance.setConnected(true)
@@ -400,6 +408,7 @@ class CarPlayController(
             if (currentCornerMask?.session === session) currentCornerMask = null
             if (activeSession === session) {
                 activeSession = null
+                displaySource?.end()
                 synchronized(albumReplayLock) { initialArtworkReplay = null }
                 BydNavigationOutputs.endNow(preserveTurnOverlay = !closed && config.transport == CarPlayTransport.WIRELESS)
                 BydBluetoothSuspend.resume(appContext, this@CarPlayController) { debugLog(it) }
@@ -432,7 +441,15 @@ class CarPlayController(
 
         // The user tapped the car icon in CarPlay: show the head unit's own menu, like its Home button.
         // The session keeps running in the background, so returning to DiPlay resumes CarPlay.
-        override fun onHostUiRequested(session: AirPlaySession) {
+        override fun onHostUiRequested(session: AirPlaySession): Boolean {
+            if (closed) {
+                debugLog("OEM request ignored: controller closed")
+                return true
+            }
+            // Let the current UI route HOME on head units with separate driver/passenger areas.
+            // Sending a generic HOME first can leave their launcher's task-area cache stale.
+            debugLog("CarPlay requested the car UI; dispatching OEM request to the current UI")
+            if (uiListener?.onHostUiRequested(session) == true) return true
             debugLog("CarPlay requested the car UI; opening the head-unit home screen")
             runCatching {
                 appContext.startActivity(
@@ -440,7 +457,7 @@ class CarPlayController(
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 )
             }.onFailure { debugLog("Car home screen could not open: ${it.javaClass.simpleName}") }
-            uiListener?.onHostUiRequested(session)
+            return true
         }
 
         override fun onRemoteControlMessage(session: AirPlaySession, streamId: Long, message: Map<String, Any?>) {
@@ -721,6 +738,7 @@ class CarPlayController(
             dashboardMapOutputVisible = false
         }
         firstTcpWatchdog?.terminate()
+        displaySource?.close()
         wiredStartWatchdog?.terminate()
         BydBluetoothSuspend.resume(appContext, this) { debugLog(it) }
         startupTimer.shutdownNow()
@@ -869,12 +887,22 @@ class CarPlayController(
 
     // HUD (SOME/IP) and cluster (AMap broadcast) keep separate state so one failing cannot stall the other.
     private fun onRouteFrame(frame: com.shilapi.xcertplay.iap2.wire.Iap2Frame) {
+        displaySource?.onFrame(frame)
         BydNavigationOutputs.onFrame(frame)
         com.shilapi.xcertplay.glance.CarPlayGlance.onFrame(frame)
         synchronized(playbackStatus) {
-            val previousPlaying = playbackStatus.playing
-            playbackStatus.acceptUpdate(frame)?.let { it to (it.playing != previousPlaying) }
-        }?.let { (update, playingChanged) ->
+            val previous = playbackStatus.nowPlaying
+            playbackStatus.acceptUpdate(frame)?.let { previous to it }
+        }?.let { (previous, update) ->
+            val playingChanged = update.playing != previous.playing
+            val itemChanged = update.title != previous.title || update.artist != previous.artist ||
+                update.album != previous.album || update.durationMillis != previous.durationMillis
+            if (playingChanged || itemChanged) {
+                debugLog("Now playing: itemChanged=$itemChanged playing=${update.playing} " +
+                    "elapsedMs=${update.elapsedMillis} durationMs=${update.durationMillis} " +
+                    "artworkId=${update.artworkTransferId}")
+            }
+            displaySource?.onMedia(update)
             nowPlayingListener?.invoke(update)
             if (playingChanged) playbackListener?.invoke(update.playing)
         }
@@ -1316,6 +1344,7 @@ class CarPlayController(
             val listenerIdentity = AirPlayListenerIdentity(generation)
             val watchdog = FirstTcpWatchdog(
                 listener = listenerIdentity,
+                timeoutMillis = firstTcpTimeoutMillis,
                 schedule = { delay, action ->
                     val future = startupTimer.schedule({ action() }, delay, TimeUnit.MILLISECONDS)
                     val cancel: () -> Unit = { future.cancel(false); Unit }
@@ -1807,6 +1836,14 @@ class CarPlayController(
 
             override fun onVideoPlaybackUiRequested(session: AirPlaySession) =
                 sessionListener.onVideoPlaybackUiRequested(session)
+
+            override fun onHostUiRequested(session: AirPlaySession): Boolean {
+                if (isStaleWirelessRun(generation)) {
+                    debugLog("OEM request ignored: stale wireless run")
+                    return true
+                }
+                return sessionListener.onHostUiRequested(session)
+            }
         }
 
     private fun onWirelessTunnelReady(generation: Int) {
@@ -2538,7 +2575,7 @@ class CarPlayController(
             WirelessHotspotMode.WIFI_P2P -> WifiP2pGroupManager(appContext, ::debugLog,
                 preferredChannel = config.wifiP2pPreferredChannel)
             WirelessHotspotMode.LOCAL_ONLY_HOTSPOT -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                LocalOnlyHotspotManager(appContext, ::debugLog)
+                localHotspotFactory?.invoke(appContext, ::debugLog) ?: LocalOnlyHotspotManager(appContext, ::debugLog)
             } else {
                 throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION,
                     "Android ${Build.VERSION.RELEASE} has no local-only hotspot. Choose Car hotspot or Wi-Fi Direct.")

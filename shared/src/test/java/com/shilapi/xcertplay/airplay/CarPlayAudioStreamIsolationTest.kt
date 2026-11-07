@@ -12,6 +12,23 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], manifest = Config.NONE)
 class CarPlayAudioStreamIsolationTest {
+    @Test fun redundancyIsNegotiatedPerStreamOnlyWhenTheSenderSupportsIt() {
+        val session = session()
+        val engine = CarPlayMediaEngine(object : MediaSink {})
+        try {
+            val offered = engine.onAudio(session, 100, setup("default") + ("supportsRTPPacketRedundancy" to true))!!
+            assertEquals(true, offered["supportsRTPPacketRedundancy"])
+            val plain = engine.onAudio(session, 100, setup("media"))!!
+            assertFalse(plain.containsKey("supportsRTPPacketRedundancy"))
+            val declined = engine.onAudio(session, 101, setup("speechrecognition") + ("supportsRTPPacketRedundancy" to false))!!
+            assertFalse(declined.containsKey("supportsRTPPacketRedundancy"))
+            val field = AudioStream::class.java.getDeclaredField("redundancy").apply { isAccessible = true }
+            for ((id, stream) in streams(engine)) {
+                assertEquals(id.audioType == "default", field.getBoolean(stream))
+            }
+        } finally { engine.onSessionClosed(session); session.close() }
+    }
+
     @Test fun guidanceSetupAndMediaReplacementKeepTheOtherAudioStreamAlive() {
         val session = session()
         val engine = CarPlayMediaEngine(object : MediaSink {})

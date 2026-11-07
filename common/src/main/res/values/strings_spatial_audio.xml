@@ -1,0 +1,7 @@
+<resources>
+    <string name="settings_spatial_audio">Spatial audio (experimental)</string>
+    <string name="settings_spatial_audio_description">Play multichannel music supplied by the app through the car’s sound system. Requires support from the app and the track. Reconnect CarPlay after changing this setting.</string>
+    <string name="settings_spatial_audio_unavailable">This version or car does not support spatial audio. You can still play regular music. Reconnect CarPlay after changing this setting.</string>
+    <string name="settings_spatial_pcm_dcx">Dolby sound (experimental)</string>
+    <string name="settings_spatial_pcm_dcx_description">Pass multichannel music supplied by the app through Dolby processing before playback. Turn on Spatial audio first; stereo music is unaffected. Reconnect CarPlay after changing this setting.</string>
+</resources>

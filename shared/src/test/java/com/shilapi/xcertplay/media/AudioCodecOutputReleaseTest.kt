@@ -39,10 +39,29 @@ class AudioCodecOutputReleaseTest {
         assertEquals(listOf("copy", "release", "write"), OutputCodec.events)
     }
 
-    private fun drain(audioType: String, failCopy: Boolean = false, failWrite: Boolean = false) {
+    @Test fun bufferedAacAppliesItsOwnGainAfterReleasingCodecOutput() {
+        drain("media", gain = 0.5f)
+        assertEquals(listOf("copy", "release", "write"), OutputCodec.events)
+        assertArrayEquals(byteArrayOf(0, 1, 1, 2), OutputTrack.written)
+    }
+
+    @Test fun bufferedAacEosKeepsTheLastDecodedPcmUntilItCanBeWritten() {
+        drain("media", gain = 1f, eos = true)
+        assertEquals(listOf("copy", "release", "write"), OutputCodec.events)
+        assertArrayEquals(byteArrayOf(1, 2, 3, 4), OutputTrack.written)
+    }
+
+    @Test fun realtimeAacEosRetainsItsExistingDecodeLoopBehaviour() {
+        drain("media", eos = true)
+        assertArrayEquals(byteArrayOf(1, 2, 3, 4), OutputTrack.written)
+    }
+
+    private fun drain(audioType: String, failCopy: Boolean = false, failWrite: Boolean = false, gain: Float? = null,
+        eos: Boolean = false) {
         OutputCodec.events.clear()
         OutputCodec.available = true
         OutputCodec.failCopy = failCopy
+        OutputCodec.eos = eos
         OutputTrack.failWrite = failWrite
         OutputTrack.written = null
         val codec = MediaCodec.createDecoderByType("audio/mp4a-latm")
@@ -54,7 +73,7 @@ class AudioCodecOutputReleaseTest {
         val type = Class.forName("com.shilapi.xcertplay.media.AudioRenderer")
         val constructor = type.declaredConstructors.single { !it.isSynthetic }.apply { isAccessible = true }
         val arguments = mutableListOf<Any?>(
-            AudioFormat(AudioCodecKind.AAC_LC, 48_000, 2, 96, audioType), false, false, 0, 0,
+            AudioFormat(AudioCodecKind.AAC_LC, 48_000, 2, if (gain == null) 96 else 103, audioType), false, false, 0, 0,
             AudioFocusCoordinator(null, false, false), 0, 500,
         )
         constructor.parameterTypes.drop(arguments.size).forEach { parameter ->
@@ -70,12 +89,29 @@ class AudioCodecOutputReleaseTest {
             })
         }
         val renderer = constructor.newInstance(*arguments.toTypedArray())
+        if (gain != null) {
+            val timeline = type.getDeclaredField("gainTimeline").apply { isAccessible = true }.get(renderer) as BufferedGainTimeline
+            timeline.record(0, gain)
+            timeline.record(20000, 0.25f) // This later input must not affect the output at 12345 us.
+        }
         fun set(name: String, value: Any) = type.getDeclaredField(name).apply { isAccessible = true }.set(renderer, value)
         set("track", track)
         set("fadeApplied", true)
         set("playbackStarted", true)
         try {
+            if (eos && gain != null) type.getDeclaredMethod("drain").apply { isAccessible = true }.invoke(renderer)
             type.getDeclaredMethod("drainCodec", MediaCodec::class.java).apply { isAccessible = true }.invoke(renderer, codec)
+            if (eos) {
+                assertEquals(gain != null, type.getDeclaredField("decodeComplete").apply { isAccessible = true }.getBoolean(renderer))
+                assertFalse("PCM still awaits the writer",
+                    type.getDeclaredMethod("drain").apply { isAccessible = true }.invoke(renderer) as Boolean)
+            }
+            assertEquals(listOf("copy", "release"), OutputCodec.events)
+            assertNull("decoder must not write to AudioTrack", OutputTrack.written)
+            val pcmQueue = type.getDeclaredField("pcmQueue").apply { isAccessible = true }.get(renderer) as AudioPcmQueue
+            val owned = pcmQueue.poll(0)!!
+            type.getDeclaredMethod("writePcm", ByteArray::class.java, Int::class.javaPrimitiveType,
+                Int::class.javaPrimitiveType).apply { isAccessible = true }.invoke(renderer, owned, 0, owned.size)
             assertFalse("expected injected failure", failCopy || failWrite)
         } catch (error: InvocationTargetException) {
             assertTrue(error.cause is IllegalStateException && (failCopy || failWrite))
@@ -90,7 +126,7 @@ class AudioCodecOutputReleaseTest {
         @Implementation override fun native_dequeueOutputBuffer(info: MediaCodec.BufferInfo, timeout: Long): Int {
             if (!available) return MediaCodec.INFO_TRY_AGAIN_LATER
             available = false
-            info.set(2, 4, 12345, 0)
+            info.set(2, 4, 12345, if (eos) MediaCodec.BUFFER_FLAG_END_OF_STREAM else 0)
             return 0
         }
         @Implementation override fun getBuffer(input: Boolean, index: Int): ByteBuffer {
@@ -103,6 +139,7 @@ class AudioCodecOutputReleaseTest {
             val events = mutableListOf<String>()
             var available = true
             var failCopy = false
+            var eos = false
         }
     }
 

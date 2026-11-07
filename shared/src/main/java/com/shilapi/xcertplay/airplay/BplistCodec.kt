@@ -255,8 +255,8 @@ object BplistCodec {
             2 -> 1
             else -> 0
         }
-        val raw = number.toByteArray()
-        return byteArrayOf((0x10 or log).toByte()) + raw.copyOfRange(raw.size - size, raw.size)
+        // Integer widths are powers of two; BigInteger can produce only 3, 5, 6 or 7 bytes.
+        return byteArrayOf((0x10 or log).toByte()) + bigEndian(number.toLong(), size)
     }
 
     private fun marker(type: Int, count: Int): ByteArray {

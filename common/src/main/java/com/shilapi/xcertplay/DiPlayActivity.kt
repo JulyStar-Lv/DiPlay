@@ -2,6 +2,9 @@
 // UI copy and visual language adapted from DiAuto. See docs/THIRD_PARTY_NOTICES.md.
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.mazda.MzdIntegration
+import com.shilapi.xcertplay.mazda.MzdCarAppLayout
+import com.shilapi.xcertplay.mazda.MzdHomeView
 import android.Manifest
 import android.app.AlertDialog
 import android.app.Dialog
@@ -198,9 +201,13 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private var homeConnectionHint: TextView? = null
     private var homeLastProblem: TextView? = null
     private var connectButton: Button? = null
+    private var mazdaHomeView: MzdHomeView? = null
     private var disconnectButton: Button? = null
     private var lastRunning: Boolean? = null
     private var pendingWireless = false
+    private val mazdaConnection = com.shilapi.xcertplay.mazda.MzdConnectionFlow(this,
+        retry = { connect(true) }, choosePhone = { pendingWireless = true; choosePhone() },
+        editManual = { editMazdaHotspot() }, builder = { appDialogBuilder() })
     private var bluetoothSettingsVisited = false
     private var initialLaunch = true
     private var notificationTransport = true
@@ -375,11 +382,15 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Back on the home page finishes this activity while the session runs on, so the icon lands here.
-        if (savedInstanceState == null && isLauncherIntent(intent) && CarPlayBackgroundSession.hasSession()) {
+        mazdaConnection.restoreState(savedInstanceState)
+        val returnToProjection = savedInstanceState == null && isLauncherIntent(intent) &&
+            CarPlayBackgroundSession.hasSession()
+        // Mazda keeps the launcher root and projection in one task, so an OEM screen transfer
+        // moves both pages. Other variants retain their separate projection task.
+        if (returnToProjection && !MzdIntegration.enabled(this)) {
             openProjection(); finish(); return
         }
-        scheduleBackgroundUpdateChecks()
+        if (!MzdIntegration.enabled(this)) scheduleBackgroundUpdateChecks()
         availableUpdate = UpdateAvailability.available(this, version())
         enforceInterfaceSize()
         refreshAppearance()
@@ -429,6 +440,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 else { isEnabled = false; onBackPressedDispatcher.onBackPressed(); isEnabled = true }
             }
         })
+        if (returnToProjection) openProjection()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -459,6 +471,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             !CarPlayBackgroundSession.hasSession()
     }
     override fun onSaveInstanceState(outState: Bundle) {
+        mazdaConnection.saveState(outState)
         outState.putString("page", page)
         outState.putString("settings_category", settingsCategory.name)
         connectionSettingsReturnCategory?.let { outState.putString("connection_settings_return_category", it.name) }
@@ -553,8 +566,10 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 handler.post { connect(DiPlayPreferences.autoConnectWireless(this)) }
             }
         }
+        mazdaConnection.onResume()
     }
     override fun onPause() {
+        mazdaConnection.onPause()
         appearanceUpdatesResumed = false
         appearanceObserverRemoval?.invoke()
         appearanceObserverRemoval = null
@@ -566,6 +581,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
 
     override fun onDestroy() {
+        mazdaConnection.cancel()
         settingsSearchPopup?.dismiss()
         appearanceObserverRemoval?.invoke()
         appearanceObserverRemoval = null
@@ -686,6 +702,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         settingsSearchBox = null
         if (page != "settings") clearSettingsSearchState()
         status = null; homeLastProblem = null; connectButton = null; disconnectButton = null; lastRunning = null; carButtonCard = null
+        mazdaHomeView = null
         reconnectBar = null
         readinessCard = null
         exportButton = null
@@ -701,7 +718,19 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         val content = column()
         scroll.addView(content)
         val header = if (page == "settings") settingsHeader(compact) else standardHeader(compact)
-        val root: View = if (page == "settings" && isExpandedSettingsLayout) {
+        val root: View = if (page == "home" && MzdIntegration.enabled(this)) {
+            MzdHomeView(this, appNight, { MzdIntegration.exitApp(this) },
+                settings = { page = "settings"; render() },
+                connect = { if (CarPlayBackgroundSession.hasSession()) openProjection() else connect(true) },
+                choosePhone = ::choosePhone, usb = { connect(false) },
+                sessionChanged = { mazdaHomeView?.refreshSession() },
+            ).apply {
+                mazdaHomeView = this
+                status = stage
+                this@DiPlayActivity.connectButton = connectButton
+                setupError?.let { instructions.text = it }
+            }
+        } else if (page == "settings" && isExpandedSettingsLayout) {
             content.setPadding(0, 0, 0, dp(32))
             settingsCategoryContent(content)
             expandedSettingsShell(header, scroll)
@@ -733,7 +762,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         val baseRight = root.paddingRight
         val baseBottom = root.paddingBottom
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
-            val safe = insets.getInsets(
+            val safe = if (MzdIntegration.cockpit(this)) insets.getInsets(WindowInsetsCompat.Type.ime()) else insets.getInsets(
                 WindowInsetsCompat.Type.displayCutout() or
                     WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime()
             )
@@ -741,7 +770,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 baseRight + safe.right, baseBottom + safe.bottom)
             insets
         }
-        setContentView(root)
+        setContentView(MzdIntegration.wrap(this, root))
         ViewCompat.requestApplyInsets(root)
         renderedPage = page
         renderedSettingsCategory = settingsCategory.takeIf { page == "settings" }
@@ -947,7 +976,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         card.addView(connectButton, matchButton(height = if (compact) 54 else 68))
         val connectionHint = when (AirPlayPersistence.loadWirelessHotspotMode(this)) {
             WirelessHotspotMode.EXISTING_WIFI -> getString(R.string.existing_wifi_hint)
-            WirelessHotspotMode.MANUAL -> getString(R.string.hotspot_hint_manual)
+            WirelessHotspotMode.MANUAL -> getString(if (com.shilapi.xcertplay.mazda.MzdWirelessConnection.automatic(this, WirelessHotspotMode.MANUAL))
+                R.string.mazda_hotspot_automatic else R.string.hotspot_hint_manual)
             WirelessHotspotMode.LOCAL_ONLY_HOTSPOT -> getString(R.string.hotspot_hint_local)
             else -> getString(R.string.hotspot_hint_p2p)
         }
@@ -1246,7 +1276,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         wireless = AirPlayPersistence.loadWirelessEnabled(this),
         phoneChosen = DiPlayPreferences.phoneAddress(this) != null,
         hotspotSetupNeeded = AirPlayPersistence.loadWirelessHotspotMode(this) == WirelessHotspotMode.MANUAL &&
-            carHotspotDetailsMissing(),
+            carHotspotDetailsMissing() && !com.shilapi.xcertplay.mazda.MzdWirelessConnection.automatic(this, WirelessHotspotMode.MANUAL),
     )
 
     private fun refreshReadiness() {
@@ -2064,6 +2094,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 AirPlayPersistence.saveMainBufferedAudio(this, it)
                 reconnectIfRunning()
             }
+            spatialAudioControls(card)
             toggle(card, getString(R.string.settings_speech_without_low_rates), getString(R.string.settings_speech_without_low_rates_description),
                 AirPlayPersistence.loadSpeechWithout8And16Khz(this)) {
                 AirPlayPersistence.saveSpeechWithout8And16Khz(this, it)
@@ -2508,10 +2539,14 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         settingsPageTitle(content, getString(R.string.about_diplay), getString(R.string.carplay_at_home_in_your_car))
         section(content, getString(R.string.about_public_preview_prefix, version())) { card ->
             card.addView(label(getString(R.string.an_independent_carplay_receiver_for_android_head_units_wir), 17, TEXT))
-            card.addView(updateRow())
-            toggle(card, getString(R.string.settings_background_update_checks),
-                getString(R.string.settings_background_update_checks_description),
-                UpdateAvailability.backgroundChecksEnabled(this)) { UpdateAvailability.saveBackgroundChecksEnabled(this, it) }
+            if (MzdIntegration.enabled(this)) {
+                card.addView(label(getString(R.string.mazda_update_manual), 14, MUTED))
+            } else {
+                card.addView(updateRow())
+                toggle(card, getString(R.string.settings_background_update_checks),
+                    getString(R.string.settings_background_update_checks_description),
+                    UpdateAvailability.backgroundChecksEnabled(this)) { UpdateAvailability.saveBackgroundChecksEnabled(this, it) }
+            }
         }
         section(content, getString(R.string.backup_title)) { card ->
             card.addView(button(getString(R.string.backup_open), false) { openBackup() }, matchButton(0, 60))
@@ -2519,6 +2554,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         section(content, getString(R.string.made_possible_by_open_source)) { card ->
             card.addView(label(getString(R.string.receiver_based_on_xcertplay_licensed_under_gpl_3_0_diplay), 16, MUTED))
+            card.addView(label("Based on LIVI by Lasse Heitgres (https://github.com/f-io/LIVI)", 14, MUTED))
         }
     }
 
@@ -2829,6 +2865,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     // An opted-in connection prepares the hotspot in the controller instead of stopping at this reminder.
     private fun carHotspotOff(): Boolean =
         AirPlayPersistence.loadWirelessHotspotMode(this) == WirelessHotspotMode.MANUAL &&
+            !com.shilapi.xcertplay.mazda.MzdWirelessConnection.automatic(this, WirelessHotspotMode.MANUAL) &&
             CarHotspotSettings.reportedOff(this, com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(this)) &&
             !(CarHotspotSettings.enabled(this) && CarHotspotTethering.permitted(this))
 
@@ -3151,7 +3188,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
 
     private fun startupHotspotEligible(): Boolean =
-        CarHotspotSetup.shouldStartOnLaunch(applicationContext, CarPlayBackgroundSession.hasSession())
+        CarHotspotSetup.shouldStartOnLaunch(applicationContext, CarPlayBackgroundSession.hasSession()) &&
+            !com.shilapi.xcertplay.mazda.MzdWirelessConnection.automatic(this, AirPlayPersistence.loadWirelessHotspotMode(this))
 
     private fun hotspotResultText(result: CarHotspotTethering.Result): String = getString(when (result) {
         CarHotspotTethering.Result.READY -> R.string.hotspot_control_on
@@ -3239,6 +3277,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
      * opened instead. Every other head unit keeps the standard action, unchanged.
      */
     private fun openBluetoothSettings() {
+        if (mazdaConnection.openBluetoothSettings()) return
         if (!answeredByBydDecoy(Settings.ACTION_BLUETOOTH_SETTINGS)) {
             openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
             return
@@ -3249,6 +3288,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
 
     private fun openCarWifiSettings() {
+        if (mazdaConnection.openNetworkSettings()) return
         val tether = "com.android.settings.WIFI_TETHER_SETTINGS"
         val target = packageManager.resolveActivity(Intent(tether), 0)?.activityInfo?.packageName
         // Nothing opens the AOSP hotspot screen here: either no app answers the action at all, or BYD's
@@ -3273,6 +3313,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
 
     private fun openCarClientWifiSettings() {
+        if (mazdaConnection.openNetworkSettings()) return
         val wifi = Intent(Settings.ACTION_WIFI_SETTINGS)
         if (packageManager.resolveActivity(wifi, 0)?.activityInfo?.packageName == "com.byd.carsettings") {
             runCatching { startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)) }
@@ -3526,12 +3567,13 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         val choices = if (wide) row().apply { gravity = Gravity.TOP } else column()
         parent.addView(choices)
         modes.forEachIndexed { index, candidate ->
+            if (MzdIntegration.enabled(this) && candidate == WirelessHotspotMode.WIFI_P2P) return@forEachIndexed
             val option = column()
             choices.addView(option, if (wide) LinearLayout.LayoutParams(0, -2, 1f).apply {
                 if (index > 0) marginStart = dp(16)
             } else LinearLayout.LayoutParams(-1, -2))
             option.addView(button("${if (mode == candidate) "✓  " else ""}${titles[index]}", mode == candidate) {
-                if (candidate == WirelessHotspotMode.MANUAL) {
+                if (candidate == WirelessHotspotMode.MANUAL && !MzdIntegration.enabled(this)) {
                     pendingCarHotspotSetup = true
                     render()
                 } else if (candidate == WirelessHotspotMode.EXISTING_WIFI) {
@@ -3546,11 +3588,13 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     applyWirelessLink(candidate)
                 }
             }, matchButton(12, 60))
-            option.addView(label(descriptions[index], 15, MUTED).apply { setPadding(0, dp(6), 0, dp(12)) })
+            option.addView(label(if (MzdIntegration.enabled(this) && candidate == WirelessHotspotMode.MANUAL)
+                getString(R.string.mazda_hotspot_mode_description) else descriptions[index], 15, MUTED)
+                .apply { setPadding(0, dp(6), 0, dp(12)) })
         }
         if (mode == WirelessHotspotMode.MANUAL) {
             parent.addView(label(getString(R.string.hotspot_setup), 22, TEXT, true))
-            parent.addView(label(getString(R.string.s_1_open_car_hotspot_settings_turn_the_hotspot_on_and_sele), 16, MUTED).apply { setPadding(0, dp(8), 0, dp(12)) })
+            if (!MzdIntegration.enabled(this)) parent.addView(label(getString(R.string.s_1_open_car_hotspot_settings_turn_the_hotspot_on_and_sele), 16, MUTED).apply { setPadding(0, dp(8), 0, dp(12)) })
             parent.addView(button(getString(R.string.open_car_hotspot_settings), false) { openCarWifiSettings() }, matchButton(0, 60))
             // Before anything is saved there is no hotspot to edit and no name to show after the dot.
             val detailsMissing = carHotspotDetailsMissing()
@@ -3561,7 +3605,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     applyWirelessLink(WirelessHotspotMode.MANUAL)
                 }
             }, matchButton(12, 60))
-            parent.addView(label(if (detailsMissing) getString(R.string.finish_setup_save_your_hotspot_details_to_use_this_mode) else if (carHotspotOff()) getString(R.string.hotspot_details_off) else getString(R.string.hotspot_details_saved), 15, if (carHotspotOff()) WARNING else MUTED).apply { setPadding(0, dp(12), 0, 0) })
+            parent.addView(label(if (MzdIntegration.enabled(this) && !com.shilapi.xcertplay.mazda.MzdWirelessConnection.hasManualDetails(this))
+                getString(R.string.mazda_hotspot_automatic) else if (detailsMissing) getString(R.string.finish_setup_save_your_hotspot_details_to_use_this_mode) else if (carHotspotOff()) getString(R.string.hotspot_details_off) else getString(R.string.hotspot_details_saved), 15, if (carHotspotOff()) WARNING else MUTED).apply { setPadding(0, dp(12), 0, 0) })
             if (CarHotspotConfigWrite.supported()) {
                 searchIndexSink?.add(getString(R.string.settings_car_hotspot_config_title))
                 parent.addView(SettingsWidgets.createSwitchRow(
@@ -3768,6 +3813,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
 
     private fun askHotspotCredentials(
         existingWifi: Boolean = false,
+        onCancel: () -> Unit = {},
         done: (String, String, ManualHotspotSecurity, String) -> Unit,
     ) {
         val dialogContext = appDialogContext()
@@ -3876,7 +3922,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         fields.addView(error)
         val dialog = appDialogBuilder().setTitle(getString(if (existingWifi) R.string.existing_wifi_details else R.string.car_hotspot_details))
             .setView(ScrollView(dialogContext).apply { addView(fields) })
-            .setPositiveButton(getString(R.string.save_details), null).setNegativeButton(getString(R.string.cancel)) { _, _ -> hideKeyboard() }
+            .setPositiveButton(getString(R.string.save_details), null).setNegativeButton(getString(R.string.cancel)) { _, _ -> hideKeyboard(); onCancel() }
+            .setOnCancelListener { hideKeyboard(); onCancel() }
             .setNeutralButton(getString(R.string.hide_keyboard), null).create()
         dialog.setOnShowListener {
             dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
@@ -5729,17 +5776,19 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
 
     private fun connect(wireless: Boolean) {
         startupHotspotCancelled = true
-        if (wireless && pendingCarHotspotSetup) { toast(getString(R.string.save_your_hotspot_details_in_connection_setup_first)); page = "connection"; render(); return }
+        val mazdaWireless = wireless && MzdIntegration.enabled(this)
+        if (mazdaWireless && setupError == null && !mazdaConnection.prepare()) return
+        if (wireless && pendingCarHotspotSetup && !mazdaWireless) { toast(getString(R.string.save_your_hotspot_details_in_connection_setup_first)); page = "connection"; render(); return }
         if (setupError != null) { toast(setupError!!); return }
         if (wireless && AirPlayPersistence.loadWirelessHotspotMode(this) == WirelessHotspotMode.MANUAL &&
-            hotspotError(storedSsid(), storedPassword()) != null) {
+            hotspotError(storedSsid(), storedPassword()) != null && !mazdaWireless) {
             pendingCarHotspotSetup = true
             page = "connection"
             render()
             toast(getString(R.string.save_the_name_and_password_from_the_car_s_hotspot_settings))
             return
         }
-        if (wireless && carHotspotOff()) { carHotspotOffDialog(); return }
+        if (wireless && carHotspotOff() && !mazdaWireless) { carHotspotOffDialog(); return }
         if (wireless && DiPlayPreferences.phoneAddress(this) == null) {
             pendingWireless = true; choosePhone(); return
         }
@@ -5759,6 +5808,17 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
     private fun openProjection() {
         OwnScreenStart.start(this, CarPlayScreen.intent(this).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+        mazdaConnection.projectionOpened()
+    }
+    private fun editMazdaHotspot() {
+        page = "connection"; render()
+        askHotspotCredentials(onCancel = { mazdaConnection.cancel() }) { ssid, password, security, interfaceName ->
+            saveHotspotCredentials(ssid, password, security, interfaceName)
+            pendingCarHotspotSetup = false
+            AirPlayPersistence.saveWirelessHotspotMode(this, WirelessHotspotMode.MANUAL)
+            mazdaConnection.manualDetailsSaved()
+            connect(true)
+        }
     }
     private fun choosePhone() {
         if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
@@ -5766,6 +5826,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         val adapter = getSystemService(BluetoothManager::class.java)?.adapter ?: BluetoothAdapter.getDefaultAdapter()
         if (adapter == null) {
+            mazdaConnection.cancel()
             // Android here has no Bluetooth for apps at all, so there is no switch to send the driver to.
             pendingWireless = false
             appDialogBuilder().setTitle(getString(R.string.wireless_carplay_2))
@@ -5782,14 +5843,16 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     bluetoothSettingsVisited = true
                     openBluetoothSettings()
                 }
-                .setNegativeButton(getString(R.string.later), null).show(); return
+                .setNegativeButton(getString(R.string.later)) { _, _ -> pendingWireless = false; mazdaConnection.cancel() }
+                .setOnCancelListener { pendingWireless = false; mazdaConnection.cancel() }.show(); return
         }
         val devices = runCatching { adapter.bondedDevices.sortedBy { it.name ?: "" } }.getOrDefault(emptyList())
         if (devices.isEmpty()) {
             appDialogBuilder().setTitle(getString(R.string.pair_your_iphone))
                 .setMessage(getString(R.string.on_your_iphone_open_settings_bluetooth_and_pair_with_the_c))
                 .setPositiveButton(getString(R.string.open_bluetooth)) { _, _ -> openBluetoothSettings() }
-                .setNegativeButton(getString(R.string.got_it), null).show(); return
+                .setNegativeButton(getString(R.string.got_it)) { _, _ -> pendingWireless = false; mazdaConnection.cancel() }
+                .setOnCancelListener { pendingWireless = false; mazdaConnection.cancel() }.show(); return
         }
         appDialogBuilder().setTitle(getString(R.string.choose_your_iphone))
             .setItems(devices.map { device ->
@@ -5798,11 +5861,13 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             }.toTypedArray()) { _, index ->
                 val device = devices[index]
                 DiPlayPreferences.savePhone(this, device.address, device.name ?: "iPhone")
+                mazdaConnection.phoneChosen()
                 val start = pendingWireless; pendingWireless = false
                 render()
                 if (start) connect(true)
             }.setNeutralButton(getString(R.string.pair_another)) { _, _ -> openBluetoothSettings() }
-            .setNegativeButton(getString(R.string.cancel)) { _, _ -> pendingWireless = false }.show()
+            .setNegativeButton(getString(R.string.cancel)) { _, _ -> pendingWireless = false; mazdaConnection.cancel() }
+            .setOnCancelListener { pendingWireless = false; mazdaConnection.cancel() }.show()
     }
 
     private fun wirelessHelp() {
@@ -5883,6 +5948,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             disconnectButton?.isEnabled = true
             lastRunning = running
         }
+        mazdaHomeView?.refreshSession()
         connectButton?.isEnabled = setupError == null
         refreshReconnectBar()
         refreshReadiness()
@@ -5992,6 +6058,15 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         appendLine("CarPlay screen: ${CarPlayScreen.report(appContext)}")
         appendLine(PhoneWakeDiagnostics.report(appContext))
         appendLine("Head-unit board: ${Build.BOARD}; hardware: ${Build.HARDWARE}; build: ${Build.DISPLAY}")
+        appendLine()
+        appendLine("--- Current audio thread stacks (captured on report export) ---")
+        Thread.getAllStackTraces().entries
+            .filter { (thread, _) -> thread.name.startsWith("airplay-buffered-") || thread.name.startsWith("carplay-audio") }
+            .sortedBy { (thread, _) -> thread.name }
+            .forEach { (thread, stack) ->
+                appendLine("${thread.name}: ${thread.state}")
+                stack.take(16).forEach { appendLine("  at $it") }
+            }
         appendLine()
         appendLine(BluetoothDiagnosticSnapshot.report(appContext))
         appendLine()
@@ -6268,6 +6343,39 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         if (settingsSectionFilter?.contains(key) == false) return
         section(parent, title, icon, build)
     }
+    private fun spatialAudioControls(parent: LinearLayout) {
+        val supported = runCatching { com.shilapi.xcertplay.media.SpatialAudioSupport.formats(this).isNotEmpty() }
+            .getOrDefault(false)
+        val spatialEnabled = AirPlayPersistence.loadSpatialAudio(this)
+        var dcx: Switch? = null
+        fun updateDcxEnabled(enabled: Boolean) {
+            dcx?.isEnabled = enabled
+            (dcx?.parent as? View)?.apply {
+                isEnabled = enabled
+                isFocusable = enabled
+                alpha = if (enabled) 1f else 0.5f
+            }
+        }
+        toggle(parent, getString(R.string.settings_spatial_audio),
+            getString(if (supported) R.string.settings_spatial_audio_description else R.string.settings_spatial_audio_unavailable),
+            spatialEnabled, enabled = supported || spatialEnabled) {
+            AirPlayPersistence.saveSpatialAudio(this, it)
+            markReconnectNeeded()
+            updateDcxEnabled(it)
+        }
+        if (AirPlayPersistence.isSpatialPcmDcxExperiment(this)) {
+            val dependent = column().apply { setPaddingRelative(dp(SETTINGS_CONTROL_INSET_DP), 0, 0, 0) }
+            dcx = toggle(dependent, getString(R.string.settings_spatial_pcm_dcx),
+                getString(R.string.settings_spatial_pcm_dcx_description),
+                AirPlayPersistence.loadSpatialPcmDcx(this), enabled = spatialEnabled) {
+                AirPlayPersistence.saveSpatialPcmDcx(this, it)
+                markReconnectNeeded()
+            }
+            parent.addView(dependent)
+            updateDcxEnabled(spatialEnabled)
+        }
+    }
+
     // Routing changes affect the live cluster surface as soon as the host resumes.
     // Ask before saving them instead of promising to defer only part of the change.
     private fun reconnectingToggle(parent: LinearLayout, title: String, description: String,
@@ -6904,6 +7012,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             isAppearanceLightNavigationBars = palette.systemBarIconsAreDark
         }
         applyFullscreenMode()
+        if (MzdIntegration.enabled(this)) MzdCarAppLayout.applyWindowBackground(this)
     }
 
     private val BG get() = palette.background

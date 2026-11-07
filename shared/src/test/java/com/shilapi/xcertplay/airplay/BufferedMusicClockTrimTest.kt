@@ -110,7 +110,7 @@ class BufferedMusicClockTrimTest {
             seconds.withIndex().filter { abs(it.value.rate - 48_000) > 48 }.map { "${it.index + 1} s: ${it.value.rate}" }
     }
 
-    private class RendererWithModelledDecoder(format: AudioFormat, startMs: Int, drift: Double, reports: MutableList<String>) {
+    private class RendererWithModelledDecoder(format: AudioFormat, private val startMs: Int, drift: Double, reports: MutableList<String>) {
         private val type = Class.forName("com.shilapi.xcertplay.media.AudioRenderer")
         private val renderer = type.declaredConstructors.single { it.parameterCount == 13 }.apply { isAccessible = true }
             .newInstance(format, false, false, 0, 0, AudioFocusCoordinator(null, false), 0, startMs,
@@ -141,7 +141,10 @@ class BufferedMusicClockTrimTest {
             if (nowMs >= createdMs + SETUP_MS) {
                 decodeCredit += DECODE_TIMES_REALTIME * 48.0 * STEP_MS
                 val write = method("writePcm", ByteArray::class.java, Int::class.javaPrimitiveType!!, Int::class.javaPrimitiveType!!)
-                while (decodeCredit >= FRAME && packets.isNotEmpty() && output.queuedFrames + FRAME <= HeadUnitTrack.capacityFrames) {
+                // Model the separate paced writer without blocking this thread: it also advances
+                // the fake DAC. Leave a packet queued until a whole write fits the pacing budget.
+                while (decodeCredit >= FRAME && packets.isNotEmpty() && output.queuedFrames <= startMs * 48L &&
+                    output.queuedFrames + FRAME <= HeadUnitTrack.capacityFrames) {
                     packets.poll()
                     decodeCredit -= FRAME
                     write.invoke(renderer, ByteArray(FRAME.toInt() * 4), 0, FRAME.toInt() * 4)

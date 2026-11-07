@@ -139,6 +139,7 @@ class CarPlayViewAreas private constructor(
             startPortrait: Boolean,
             sidePanel: Boolean = false,
             rightHandDrive: Boolean = false,
+            splitAtRight: Boolean = false,
         ): CarPlayViewAreas? {
             val splits = screens.associateWith { splitWindow(it.portrait) }
             if (screens.size == 1 && dock.edge == null && splits.values.all { it == null } && !sidePanel &&
@@ -157,7 +158,8 @@ class CarPlayViewAreas private constructor(
                 val splitWidth = (screen.width * window.first).toInt().coerceIn(2, screen.width) and 1.inv()
                 val splitHeight = (screen.height * window.second).toInt().coerceIn(2, screen.height) and 1.inv()
                 for (edge in edges) {
-                    areas += AirPlayViewArea(splitWidth, splitHeight, dockEdge = edge)
+                    areas += AirPlayViewArea(splitWidth, splitHeight,
+                        originX = if (splitAtRight) screen.width - splitWidth else 0, dockEdge = edge)
                     slots += Slot(Kind.SPLIT_SCREEN, screen.portrait)
                 }
             }

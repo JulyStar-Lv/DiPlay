@@ -1,0 +1,7 @@
+<resources>
+    <string name="settings_spatial_audio">Uzamsal ses (deneysel)</string>
+    <string name="settings_spatial_audio_description">Uygulamanın sağladığı çok kanallı müziği aracın ses sisteminde çalar. Uygulamanın ve parçanın bu özelliği desteklemesi gerekir. Bu ayarı değiştirdikten sonra CarPlay bağlantısını yeniden kurun.</string>
+    <string name="settings_spatial_audio_unavailable">Bu sürüm veya araç uzamsal sesi desteklemiyor. Normal müzik dinlemeye devam edebilirsiniz. Bu ayarı değiştirdikten sonra CarPlay bağlantısını yeniden kurun.</string>
+    <string name="settings_spatial_pcm_dcx">Dolby sesi (deneysel)</string>
+    <string name="settings_spatial_pcm_dcx_description">Uygulamanın sağladığı çok kanallı müziğe çalmadan önce Dolby işlemesi uygular. Önce uzamsal sesi açın; stereo müziği etkilemez. Bu ayarı değiştirdikten sonra CarPlay bağlantısını yeniden kurun.</string>
+</resources>

@@ -14,7 +14,10 @@ import java.util.concurrent.Executor
  * SystemApi. Use it only where available; never substitute the station's channel or use shell.
  * The observer follows the reservation and publishes no SSID/password/client information.
  */
-internal class LocalOnlyHotspotRadioInfo(private val wifi: WifiManager) : Closeable {
+internal class LocalOnlyHotspotRadioInfo(
+    private val wifi: WifiManager,
+    private val onStateChanged: (Int) -> Unit = {},
+) : Closeable {
     data class Radio(val bssid: String?, val frequencyMHz: Int)
 
     private data class Snapshot(val radios: List<Radio>, val changedNs: Long)
@@ -42,6 +45,10 @@ internal class LocalOnlyHotspotRadioInfo(private val wifi: WifiManager) : Closea
                     "hashCode" -> System.identityHashCode(self)
                     "equals" -> self === args?.firstOrNull()
                     "toString" -> "DiPlay local hotspot radio observer"
+                    "onStateChanged" -> {
+                        (args?.firstOrNull() as? Number)?.toInt()?.let(onStateChanged)
+                        null
+                    }
                     "onInfoChanged" -> {
                         val infos = (args?.firstOrNull() as? List<*>) ?: listOfNotNull(args?.firstOrNull())
                         val radios = infos.mapNotNull { info ->

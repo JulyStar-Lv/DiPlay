@@ -29,7 +29,11 @@ import java.util.concurrent.TimeUnit
  * until [close].
  */
 @RequiresApi(Build.VERSION_CODES.O)
-class LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (String) -> Unit = {}) : WirelessHotspotManager {
+class LocalOnlyHotspotManager(
+    context: Context,
+    private val onDiagnostic: (String) -> Unit = {},
+    private val customRequest: ((WifiManager, WifiManager.LocalOnlyHotspotCallback, Handler) -> Unit)? = null,
+) : WirelessHotspotManager {
     private val connectivityManager =
         context.applicationContext.getSystemService(ConnectivityManager::class.java)
     private val wifiManager = context.applicationContext.getSystemService(WifiManager::class.java)
@@ -176,6 +180,10 @@ class LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (Strin
      * the returned channel as the advertised fallback when no live radio reading exists.
      */
     private fun requestHotspot(callback: WifiManager.LocalOnlyHotspotCallback): Int? {
+        customRequest?.let {
+            it(wifiManager, callback, Handler(Looper.getMainLooper()))
+            return null
+        }
         // Android 13's service accepts a custom LOHS configuration from target-33+ callers
         // with Nearby devices permission. BYD's Android 12 builds expose the same entry
         // point but return a 2.4 GHz hotspot regardless of the requested band (observed

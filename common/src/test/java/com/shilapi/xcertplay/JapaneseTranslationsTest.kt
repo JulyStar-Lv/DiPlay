@@ -11,7 +11,8 @@ class JapaneseTranslationsTest {
     @Test fun everyEnglishStringHasAJapaneseTranslationWithMatchingArguments() {
         val english = load("values")
         val japanese = load("values-ja")
-        assertEquals("Japanese resource keys", english.keys, japanese.keys)
+        // Older locales may retain copies of non-translatable diagnostic text.
+        assertEquals("Missing Japanese resource keys", emptySet<String>(), english.keys - japanese.keys)
         for ((name, source) in english) {
             assertEquals(name, placeholders(source), placeholders(japanese.getValue(name)))
         }
@@ -31,6 +32,8 @@ class JapaneseTranslationsTest {
             val nodes = document.getElementsByTagName("string")
             for (index in 0 until nodes.length) {
                 val node = nodes.item(index)
+                // OEM labels and other build configuration are shared, not translated UI copy.
+                if (node.attributes.getNamedItem("translatable")?.nodeValue == "false") continue
                 val key = node.attributes.getNamedItem("name").nodeValue
                 check(result.put(key, node.textContent) == null) { "Duplicate translation: $locale/$key" }
             }

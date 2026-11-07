@@ -147,6 +147,14 @@ class NtpClock : Closeable {
         val offset = t2.subtract(t1).add(t3.subtract(t4)).toDouble() * 0.5 / TWO32_DOUBLE
         val rtt = t4.subtract(t1).subtract(t3.subtract(t2)).toDouble() / TWO32_DOUBLE
         if (rtt < 0.0) return
+        synchronized(clockLock) {
+            // Buffered SETRATE can arrive before the second timing exchange. Its anchor
+            // must already use the phone's clock, rather than the head unit's wall clock.
+            if (!synced) {
+                applyOffset(offset)
+                return
+            }
+        }
 
         if (rtt < pickRtt) {
             pickRtt = rtt

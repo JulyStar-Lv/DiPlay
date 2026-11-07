@@ -1,0 +1,7 @@
+<resources>
+    <string name="settings_spatial_audio">空间音频（实验性）</string>
+    <string name="settings_spatial_audio_description">应用提供的多声道音乐交给车机音响播放，需应用和歌曲支持。更改后需重新连接 CarPlay。</string>
+    <string name="settings_spatial_audio_unavailable">当前版本或车机不支持空间音频，普通音乐仍可正常播放。更改后需重新连接 CarPlay。</string>
+    <string name="settings_spatial_pcm_dcx">杜比音效（实验性）</string>
+    <string name="settings_spatial_pcm_dcx_description">应用提供的多声道音乐经过杜比处理后交给音响播放，需先开启“空间音频”，普通立体声音乐不受影响。更改后需重新连接 CarPlay。</string>
+</resources>

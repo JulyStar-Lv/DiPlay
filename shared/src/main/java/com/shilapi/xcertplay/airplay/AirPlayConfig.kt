@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay.airplay
 
+import com.shilapi.xcertplay.shared.BuildConfig
+
 /** Display insets in pixels, used for CarPlay viewArea and safeArea declarations. */
 data class AirPlayInsets(
     val top: Int = 0,
@@ -93,6 +95,8 @@ data class AirPlayConfig(
      * ahead of time over TCP, so short Wi-Fi gaps do not interrupt it.
      */
     val mainBufferedAudio: Boolean = false,
+    /** Build-only timeline comparison; ordinary builds keep the existing control responses. */
+    val bufferedTimelineExperiment: Int = BuildConfig.BUFFERED_TIMELINE_EXPERIMENT,
     /**
      * Over USB the iPhone sent navigation prompts as 8 kHz PCM, the lowest rate offered for the
      * default stream (#148, #341). When set, 8 and 16 kHz are not offered for default and alert audio.
@@ -105,8 +109,14 @@ data class AirPlayConfig(
      * restricted the same way, because the iPhone picks one format for both directions.
      */
     val callAtCallRate: Boolean = false,
+    /** Navigation route-sharing probe; enabled explicitly until real geometry decoding is validated. */
+    val routeSharing: Boolean = false,
+    /** Opt-in APAC indices verified against the output route; empty keeps the legacy AAC offer. */
+    val spatialAudioFormats: List<Int> = emptyList(),
+    /** Experimental receiver DCX capability; the sender still decides per-item rendering and badging. */
+    val dolbyDcxEnabled: Boolean = false,
 )
 
 /** The offer, SETUP and controls must all honor the user's audio-output setting. */
 internal val AirPlayConfig.bufferedAudioOutputEnabled: Boolean
-    get() = mainBufferedAudio && !disableAudioOutput
+    get() = (mainBufferedAudio || spatialAudioFormats.any { it == 65 || it == 68 }) && !disableAudioOutput

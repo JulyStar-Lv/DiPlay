@@ -128,6 +128,68 @@ object AirPlayCrypto {
         }
 
     /**
+     * One stream's immutable key, with array slices and caller-owned output for audio packets.
+     * The array API avoids staging small packets through direct buffers on every Android version.
+     * Callers must publish decrypted output only after this method authenticates successfully.
+     */
+    internal class PacketCipher(key: ByteArray) {
+        private val platformKey = SecretKeySpec(key, "ChaCha20")
+        private val fallbackKey = KeyParameter(key)
+
+        init { require(key.size == 32) { "ChaCha20 requires a 32-byte key" } }
+
+        fun cryptInto(
+            encrypt: Boolean,
+            nonce: ByteArray,
+            input: ByteArray,
+            inputOffset: Int,
+            inputLength: Int,
+            aad: ByteArray,
+            aadOffset: Int,
+            aadLength: Int,
+            output: ByteArray,
+            outputOffset: Int,
+        ): Int {
+            require(nonce.size == NONCE_SIZE) { "ChaCha20-Poly1305 requires a 12-byte nonce" }
+            require(inputOffset >= 0 && inputLength >= 0 && inputOffset <= input.size - inputLength)
+            require(aadOffset >= 0 && aadLength >= 0 && aadOffset <= aad.size - aadLength)
+            require(input !== output) { "Packet input and output must have separate ownership" }
+            val tagBytes = MAC_BITS / 8
+            val outputLength = if (encrypt) {
+                require(inputLength <= Int.MAX_VALUE - tagBytes)
+                inputLength + tagBytes
+            } else {
+                require(inputLength >= tagBytes) { "Missing authentication tag" }
+                inputLength - tagBytes
+            }
+            require(outputOffset >= 0 && outputOffset <= output.size - outputLength)
+
+            val state = platformState.get()
+            if (state != null) {
+                try {
+                    val cipher = state.cipher
+                    cipher.init(if (encrypt) Cipher.ENCRYPT_MODE else Cipher.DECRYPT_MODE, platformKey, IvParameterSpec(nonce))
+                    if (aadLength > 0) cipher.updateAAD(aad, aadOffset, aadLength)
+                    return cipher.doFinal(input, inputOffset, inputLength, output, outputOffset).also {
+                        state.implementation = cipher.provider.name
+                    }
+                } catch (failure: AEADBadTagException) {
+                    throw failure
+                } catch (_: GeneralSecurityException) {
+                    // Preserve the same compatibility fallback as chachaSeal/chachaOpen.
+                }
+            }
+            val cipher = ChaCha20Poly1305()
+            cipher.init(encrypt, AEADParameters(fallbackKey, MAC_BITS, nonce))
+            if (aadLength > 0) cipher.processAADBytes(aad, aadOffset, aadLength)
+            val processed = cipher.processBytes(input, inputOffset, inputLength, output, outputOffset)
+            val written = processed + cipher.doFinal(output, outputOffset + processed)
+            state?.implementation = "BouncyCastle"
+            return written
+        }
+    }
+
+    /**
      * Null when the platform has no ChaCha20-Poly1305 or refuses this use of it (a desktop JDK rejects
      * reusing a key and nonce for encryption, which tests do); a failed tag still throws.
      */

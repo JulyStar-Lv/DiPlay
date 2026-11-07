@@ -152,6 +152,43 @@ class BufferedAudioStreamTest {
         } finally { stream.close() }
     }
 
+    @Test
+    fun boundedFlushKeepsTheAudiblePositionAndUnaffectedPreload() {
+        for (fromIndex in listOf(80, 20)) {
+            val sink = RecordingSink()
+            val stream = BufferedAudioStream(key, format, sink, nanoTime = { 0L })
+            fun timestamp(index: Int) = 1000L + index * 1024L
+            try {
+                stream.start()
+                Socket(InetAddress.getLoopbackAddress(), stream.port).use { socket ->
+                    val out = DataOutputStream(socket.getOutputStream())
+                    repeat(100) { i ->
+                        val body = seal(i, timestamp(i), byteArrayOf(0x21))
+                        out.writeShort(body.size + 2); out.write(body)
+                    }
+                    out.flush()
+                    waitFor { queuedFrames(stream) == 100 }
+                    stream.setRate(timestamp(0), 1, BigInteger.ZERO)
+                    waitFor { sink.rtp.size == 47 }
+                    val anchor = stream.anchor()
+                    stream.flush(timestamp(fromIndex + 10), timestamp(fromIndex))
+                    assertEquals(anchor, stream.anchor())
+                    assertEquals("A future-only flush stopped the current output", if (fromIndex == 80) 0 else 1, sink.stopped)
+                    val paused = stream.setRate(null, 0, BigInteger.ZERO)!!
+                    assertEquals("A bounded flush lost the audible position", timestamp(0), paused["rtpTime"])
+                    assertEquals(89, queuedFrames(stream))
+                    assertEquals(89 * 13L, queuedBytes(stream))
+                    val deliveredBeforeResume = sink.rtp.size
+                    stream.setRate(paused["rtpTime"] as Long, 1, BigInteger.ZERO)
+                    waitFor { sink.rtp.size >= deliveredBeforeResume + 47 }
+                    val resumed = sink.rtp.drop(deliveredBeforeResume)
+                    val expected = (0 until 100).filter { it !in fromIndex..(fromIndex + 10) }.take(resumed.size)
+                    assertEquals(expected.map { timestamp(it).toInt() }, resumed)
+                }
+            } finally { stream.close() }
+        }
+    }
+
     private fun controlWaitsForDelivery(control: (BufferedAudioStream) -> Unit) {
         val delivering = CountDownLatch(1)
         val release = CountDownLatch(1)
@@ -370,6 +407,38 @@ class BufferedAudioStreamTest {
         assertEquals(131_959L, anchor["networkTimeSecs"])
         assertEquals(BigInteger.ONE.shiftLeft(63), anchor["networkTimeFrac"])
         assertEquals(1, anchor["rate"])
+    }
+
+    @Test
+    fun timelineDiagnosticsDoNotChangePlaybackFeedbackOrPauseRetention() {
+        fun run(diagnostics: Boolean): Map<String, Any?> {
+            val sink = RecordingSink()
+            val logs = CopyOnWriteArrayList<String>()
+            BufferedAudioStream(key, format, sink, log = logs::add, nanoTime = { 0L },
+                timelineDiagnostics = diagnostics).use { stream ->
+                stream.start()
+                Socket(InetAddress.getLoopbackAddress(), stream.port).use { socket ->
+                    val out = DataOutputStream(socket.getOutputStream())
+                    repeat(10) { i ->
+                        val body = seal(i, 1000L + i * 1024L, byteArrayOf(0x21))
+                        out.writeShort(body.size + 2); out.write(body)
+                    }
+                    out.flush()
+                    stream.setRate(1000L, 1, BigInteger.ZERO)
+                    waitFor { sink.rtp.size == 10 }
+                    val feedback = stream.feedback(BigInteger.ONE, 42L)
+                    assertEquals(1000L, feedback["sampleTime"])
+                    val paused = stream.setRate(null, 0, BigInteger.ZERO)!!
+                    stream.setRate(paused["rtpTime"] as Long, 1, BigInteger.ZERO)
+                    waitFor { sink.rtp.size == 20 }
+                    assertEquals(List(2) { (0 until 10).map { 1000 + it * 1024 } }.flatten(), sink.rtp)
+                    assertEquals(diagnostics, logs.any { "packetDriftSamples=0" in it })
+                    assertEquals(diagnostics, logs.any { "droppedFrames=0" in it })
+                    return feedback
+                }
+            }
+        }
+        assertEquals(run(false), run(true))
     }
 
     @Test

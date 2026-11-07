@@ -4,6 +4,7 @@ import android.media.AudioDeviceInfo
 import android.media.AudioTrack
 import com.shilapi.xcertplay.media.AudioChannelMapper
 import com.shilapi.xcertplay.media.AudioFocusCoordinator
+import com.shilapi.xcertplay.media.AudioPcmQueue
 import com.shilapi.xcertplay.media.MediaAudioBuffer
 import com.shilapi.xcertplay.media.MediaClockTrim
 import java.time.Duration
@@ -127,16 +128,26 @@ class RealtimeMusicClockTrimTest {
             val packetType = Class.forName("com.shilapi.xcertplay.media.AudioRenderer\$AudioPacket")
             val handle = method("handle", packetType)
             val maintain = method("maintainPlaybackBuffer")
+            val pcm = field("pcmQueue").get(renderer) as AudioPcmQueue
+            val write = method("writePcm", ByteArray::class.java, Int::class.javaPrimitiveType!!, Int::class.javaPrimitiveType!!)
             var busyMs = 0.0
             while (nowMs < seconds * 1000L) {
+                val tickStartedMs = nowMs
                 var waited = 0L
-                while (queue.isEmpty() && waited++ < AUDIO_POLL_MILLIS) passOneMs()
-                queue.poll()?.let { packet ->
+                while (queue.isEmpty() && pcm.isEmpty && waited++ < AUDIO_POLL_MILLIS) passOneMs()
+                if (pcm.isEmpty) queue.poll()?.let { packet ->
                     handle.invoke(renderer, packet)
                     busyMs += DECODE_MS
                     while (busyMs >= 1.0) { passOneMs(); busyMs -= 1.0 }
                 }
+                // Decode and playout now have separate bounded queues. Advance the fake device
+                // between paced writes instead of blocking the only thread that moves its head.
+                while (!pcm.isEmpty && track.queuedFrames <= startMs * 48L) {
+                    val chunk = pcm.poll(0)!!
+                    write.invoke(renderer, chunk, 0, chunk.size)
+                }
                 maintain.invoke(renderer)
+                if (nowMs == tickStartedMs) passOneMs()
             }
             method("close").invoke(renderer)
             return Run(perSecond, reports.count { it.startsWith("Audio: rebuffer paused") })

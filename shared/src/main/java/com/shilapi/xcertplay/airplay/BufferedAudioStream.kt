@@ -29,10 +29,20 @@ internal class BufferedAudioStream(
     private val nanoTime: () -> Long = System::nanoTime,
     private val pause: (Long) -> Unit = { Thread.sleep(it) },
     private val expectedPeer: InetAddress = InetAddress.getLoopbackAddress(),
+    private val apap: Boolean = false,
+    private val spatialFormats: List<Int> = emptyList(),
+    private val timelineDiagnostics: Boolean = false,
 ) : Closeable {
-    internal class Frame(val sequence: Int, val timestamp: Long, val rtp: ByteArray)
+    internal class Frame(val sequence: Int, val timestamp: Long, val rtp: ByteArray, val apap: ApapPacket? = null) {
+        var decoded: BufferedApacOutput.Output? = null
+        var decodedOnce = false
+        val bytes: Int get() = rtp.size + (apap?.cookie?.size ?: 0) + (decoded?.rtp?.size ?: 0)
+    }
 
     private val id = AudioStreamId(format.payloadType, format.audioType)
+    private val packetOpener = AudioPacketOpener(key)
+    private val spatialOutput = if (apap) BufferedApacOutput(spatialFormats, log) else null
+    private var outputFormat: AudioFormat? = null
     private val closed = AtomicBoolean(false)
     private val started = AtomicBoolean(false)
     private var cleanupStarted = false // guarded by lock; permits reentrant close without recursion
@@ -58,17 +68,30 @@ internal class BufferedAudioStream(
     // Playback state, guarded by [lock].
     private var rate = 0
     private var flushUntil: Long? = null
+    private val flushRanges = mutableSetOf<FlushRange>()
+
+    private data class FlushRange(val from: Long?, val until: Long, val sequenceMask: Long? = null) {
+        private val mask: Long get() = sequenceMask ?: U32
+        private fun value(frame: Frame) = if (sequenceMask != null) frame.sequence.toLong() and sequenceMask else frame.timestamp
+        private fun precedes(a: Long, b: Long) = ((a - b) and mask) >= (mask + 1) / 2
+        fun hasPassed(frame: Frame) = precedes(until, value(frame))
+        operator fun contains(frame: Frame) = (from == null || !precedes(value(frame), from)) && !hasPassed(frame)
+    }
     private var anchorRtp: Long? = null
     private var anchorNtp: BigInteger? = null
     private var feedStartTimestamp: Long? = null
     private var feedStartNs = 0L
     private var fedSamples = 0L
     private var outputGeneration = 0L
+    private var lastFedEndTimestamp: Long? = null
+    private var lastTransitionId: Long? = null
 
     val port: Int get() = boundPort
+    val rtpClockRate: Int get() = format.rtpClockRate
 
     fun start() {
         if (closed.get() || !started.compareAndSet(false, true)) return
+        if (timelineDiagnostics) log("Buffered timeline: enabled playoutUnchanged=true")
         Thread({ receive() }, "airplay-buffered-rx").apply { isDaemon = true; start() }
         Thread({ feed() }, "airplay-buffered-feed").apply { isDaemon = true; start() }
     }
@@ -85,16 +108,23 @@ internal class BufferedAudioStream(
             var failures = 0
             var receivedBytes = 0L
             var windowStart = nanoTime()
+            var bufferedGain = 1f
             while (!closed.get()) {
-                val length = input.readUnsignedShort()
-                if (length < LENGTH_BYTES + RTP_HEADER + TAG_BYTES + NONCE_BYTES) {
+                val prefix = if (apap) 4 else LENGTH_BYTES
+                val length = if (apap) input.readInt() else input.readUnsignedShort()
+                val minimum = if (apap) 4 + 15 + TAG_BYTES + NONCE_BYTES else LENGTH_BYTES + RTP_HEADER + TAG_BYTES + NONCE_BYTES
+                if (length < minimum || length > ApapPacket.MAX_RECORD_BYTES) {
                     log("Buffered audio: invalid frame length $length; closed")
                     close()
                     return
                 }
-                val body = ByteArray(length - LENGTH_BYTES)
+                val body = ByteArray(length - prefix)
                 input.readFully(body)
-                val frame = open(key, body)
+                val frame = if (apap) ApapPacket.open(key, body)?.let {
+                    // Resolve metadata before any seek/flush discard; replay keeps this frame's gain.
+                    bufferedGain = it.gain ?: bufferedGain
+                    Frame(it.sequence, it.timestamp, it.audio, it.copy(gain = bufferedGain))
+                } else open(packetOpener, body)
                 if (frame == null) {
                     if (failures++ < 3) log("Buffered audio: frame did not open (${body.size} bytes)")
                     continue
@@ -108,20 +138,23 @@ internal class BufferedAudioStream(
                     receivedBytes = 0
                     windowStart = now
                 }
-                if (frame.rtp.size <= RTP_HEADER) continue
+                if (!apap && frame.rtp.size <= RTP_HEADER) continue
                 var pacing = false
                 synchronized(lock) {
+                    // Keep every cancellation until this ordered TCP intake passes its upper
+                    // bound, then retire it before a later timestamp/sequence wrap can reuse it.
+                    flushRanges.removeAll { it.hasPassed(frame) }
                     while (!closed.get() &&
-                        flushUntil?.let { before(frame.timestamp, it) } != true &&
-                        (queuedBytes + frame.rtp.size > AUDIO_BUFFER_BYTES || queue.size + fed.size >= maxBufferedFrames)) {
+                        !shouldDropLocked(frame) &&
+                        (queuedBytes + frame.bytes > AUDIO_BUFFER_BYTES || queue.size + fed.size >= maxBufferedFrames)) {
                         // TCP backpressure preserves music rather than dropping an arbitrary part
                         // of a track. Close, playback and flush all wake the bounded receiver.
                         lock.wait()
                     }
                     if (closed.get()) return
-                    if (flushUntil?.let { before(frame.timestamp, it) } == true) return@synchronized
+                    if (shouldDropLocked(frame)) return@synchronized
                     queue.addLast(frame)
-                    queuedBytes += frame.rtp.size
+                    queuedBytes += frame.bytes
                     lock.notifyAll()
                     // Past the floor, hold the intake near FILL_RATE_MULTIPLE times real time.
                     // Reading the remaining two minutes as fast as TCP allows is a multi-megabit
@@ -173,29 +206,71 @@ internal class BufferedAudioStream(
                     if (rate == 0 || queue.isEmpty() || leadMillisLocked() >= LEAD_MILLIS) {
                         lock.wait(FEED_POLL_MILLIS)
                     } else {
-                        queue.pollFirst()?.also { frame ->
-                            fed.addLast(frame)
+                        queue.peekFirst()?.also { frame ->
+                            if (timelineDiagnostics && frame.apap?.transitionId != null &&
+                                frame.apap.transitionId != lastTransitionId) {
+                                lastTransitionId = frame.apap.transitionId
+                                log("Buffered timeline: transition id=$lastTransitionId sequence=${frame.sequence} " +
+                                    "mediaTime=${frame.apap.mediaTimeValue} rtp=${frame.timestamp} " +
+                                    "audioBytes=${frame.apap.audio.size}")
+                                logTimelineLocked("transition")
+                            }
                             val generation = outputGeneration
+                            if (frame.apap != null && !frame.decodedOnce) {
+                                val previousBytes = frame.bytes
+                                frame.decoded = spatialOutput!!.render(frame.apap)
+                                frame.decodedOnce = true
+                                queuedBytes += frame.bytes - previousBytes
+                            }
+                            val output = frame.decoded
+                            if (frame.apap != null && output == null) {
+                                fed.addLast(queue.removeFirst())
+                                return@synchronized
+                            }
+                            val playingFormat = output?.format ?: format
+                            if (outputFormat != null && outputFormat != playingFormat) {
+                                val drained = sink.onBufferedAudioDrain(id)
+                                if (closed.get() || rate == 0 || generation != outputGeneration) return@synchronized
+                                if (!drained) {
+                                    lock.wait(FEED_POLL_MILLIS)
+                                    return@synchronized
+                                }
+                            }
+                            fed.addLast(queue.removeFirst())
                             if (feedStartTimestamp == null) {
                                 feedStartTimestamp = frame.timestamp
                                 feedStartNs = nanoTime()
                                 fedSamples = 0
-                                sink.onAudioStarted(id, format, frame.timestamp.toInt())
+                            }
+                            if (outputFormat != playingFormat) {
+                                log("Buffered audio: output start rtp=${frame.timestamp} anchorRtp=$anchorRtp " +
+                                    "anchorDeltaMs=${anchorRtp?.let { ((frame.timestamp - it).toInt().toLong()) * 1000L / format.sampleRate }} " +
+                                    "queuedFrames=${queue.size} fedSamples=$fedSamples")
+                                sink.onAudioStarted(id, playingFormat, frame.timestamp.toInt())
+                                outputFormat = playingFormat
                             }
                             // A sink may synchronously report state back to its owner. Respect a
                             // reentrant pause/flush/close just as a control call on another thread.
                             if (closed.get() || rate == 0 || generation != outputGeneration) return@synchronized
-                            fedSamples += SAMPLES_PER_FRAME
+                            fedSamples += if (playingFormat.pcmChannelMask != null)
+                                (output!!.rtp.size - RTP_HEADER).toLong() / (playingFormat.channels * 2) else SAMPLES_PER_FRAME
+                            if (timelineDiagnostics) lastFedEndTimestamp = (frame.timestamp + SAMPLES_PER_FRAME) and U32
                             // The same lock orders every sink callback against pause/flush/close.
                             // Otherwise a stale RTP callback can recreate a renderer after stop.
-                            sink.onAudioRtp(id, format, frame.rtp, frame.timestamp.toInt())
+                            if (output != null) sink.onBufferedAudioRtp(id, playingFormat, output.rtp,
+                                frame.timestamp.toInt(), output.gain)
+                            else sink.onAudioRtp(id, playingFormat, frame.rtp, frame.timestamp.toInt())
                         }
                     }
                 }
             }
         } catch (_: InterruptedException) {
         } catch (error: Exception) {
-            if (!closed.get()) Log.w(TAG, "buffered audio feed failed", error)
+            if (!closed.get()) {
+                log(if (apap) "Spatial audio: unsupported cookie/packet or output failure; disable spatial audio and reconnect"
+                    else "Buffered audio: output failed (${error.javaClass.simpleName})")
+                Log.w(TAG, "buffered audio feed failed", error)
+            }
             close()
         }
     }
@@ -212,6 +287,8 @@ internal class BufferedAudioStream(
      */
     fun setRate(rtpTime: Long?, newRate: Int, nowNtp: BigInteger): Map<String, Any?>? = synchronized(lock) {
         if (closed.get()) return@synchronized null
+        logTimelineLocked("before-rate-$newRate", nowNtp)
+        val heldFrames = queue.size + fed.size
         if (newRate > 0) {
             val start = rtpTime ?: positionLocked() ?: queue.peekFirst()?.timestamp
             restoreFedLocked()
@@ -227,6 +304,9 @@ internal class BufferedAudioStream(
             restartOutputLocked()
         }
         rate = newRate.coerceIn(0, 1)
+        log("Buffered audio: set rate=$rate requestedRtp=$rtpTime anchorRtp=$anchorRtp " +
+            "nextRtp=${queue.peekFirst()?.timestamp} queuedFrames=${queue.size} retainedFrames=${fed.size}")
+        if (timelineDiagnostics) log("Buffered timeline: rate=$rate droppedFrames=${heldFrames - queue.size - fed.size}")
         lock.notifyAll()
         anchorLocked()
     }
@@ -234,17 +314,77 @@ internal class BufferedAudioStream(
     /** GETANCHOR: the current anchor, or null before the first SETRATE. */
     fun anchor(): Map<String, Any?>? = synchronized(lock) { anchorLocked() }
 
-    /** FLUSHBUFFERED: drop what was sent before [untilTimestamp] and restart the output there. */
-    fun flush(untilTimestamp: Long?) = synchronized(lock) {
+    /** A bounded flush preserves music outside its inclusive range; an until-only flush resets it. */
+    fun flush(untilTimestamp: Long?, fromTimestamp: Long? = null,
+        untilSequence: Int? = null, fromSequence: Int? = null) = synchronized(lock) {
         if (closed.get()) return@synchronized
+        // APAP sequences continue across items whose timestamp origins can jump arbitrarily.
+        // A timestamp from the old item must not discard the beginning of the next one.
+        val sequenceRange = untilSequence?.let {
+            val mask = if (apap) 0xffffffL else 0xffffL
+            if (fromSequence != null && ((it.toLong() - fromSequence) and mask) >= (mask + 1) / 2)
+                return@synchronized
+            FlushRange(fromSequence?.toLong(), it.toLong(), mask)
+        }
+        if (fromTimestamp != null || fromSequence != null) {
+            if (sequenceRange == null && (untilTimestamp == null || fromTimestamp == null ||
+                    before(untilTimestamp, fromTimestamp))) return@synchronized
+            val range = sequenceRange ?: FlushRange(fromTimestamp, untilTimestamp!!)
+            if (range.from == null) return@synchronized
+            flushRanges.add(range)
+            retireFedLocked()
+            // The sink cannot remove individual frames from its preload. Rebuild only if the
+            // discarded interval reaches that preload, retaining the current audible position.
+            val restart = fed.any { it in range }
+            if (restart) {
+                val position = positionLocked()
+                restoreFedLocked()
+                position?.let { dropBeforeLocked(it) }
+                restartOutputLocked()
+            }
+            val before = queue.size
+            queue.removeAll { frame ->
+                (frame in range).also { if (it) queuedBytes -= frame.bytes }
+            }
+            log("Buffered audio: bounded flush from=$fromTimestamp until=$untilTimestamp " +
+                "fromSeq=$fromSequence untilSeq=$untilSequence " +
+                "removedFrames=${before - queue.size} queuedFrames=${queue.size} restart=$restart")
+            lock.notifyAll()
+            return@synchronized
+        }
+        sequenceRange?.let { flushRanges.add(it) }
         restoreFedLocked()
-        if (untilTimestamp != null) dropBeforeLocked(untilTimestamp)
+        val before = queue.size
+        if (sequenceRange != null) {
+            flushUntil = null
+            queue.removeAll { frame ->
+                (frame in sequenceRange).also { if (it) queuedBytes -= frame.bytes }
+            }
+        } else if (untilTimestamp != null) dropBeforeLocked(untilTimestamp)
+        // The next item may arrive before its SETRATE. Its samples and feedback must not
+        // run against the previous item's transport/network anchor during that window.
+        rate = 0
+        anchorRtp = null
+        anchorNtp = null
         restartOutputLocked()
+        spatialOutput?.reset()
+        queue.forEach { frame ->
+            queuedBytes -= frame.decoded?.rtp?.size ?: 0
+            frame.decoded = null
+            frame.decodedOnce = false
+        }
+        log("Buffered audio: prefix flush until=$untilTimestamp untilSeq=$untilSequence " +
+            "removedFrames=${before - queue.size} queuedFrames=${queue.size} awaitingAnchor=true")
         lock.notifyAll()
+    }
+
+    fun storeMagicCookie(id: Long, cookie: ByteArray) = synchronized(lock) {
+        spatialOutput?.storeCookie(id, cookie)
     }
 
     /** The /feedback entry for this stream: the sample playing now on the session clock. */
     fun feedback(nowNtp: BigInteger, connectionId: Any?): Map<String, Any?> = synchronized(lock) {
+        logTimelineLocked("feedback", nowNtp)
         linkedMapOf<String, Any?>(
             "type" to format.payloadType,
             "sampleRate" to format.sampleRate,
@@ -255,6 +395,21 @@ internal class BufferedAudioStream(
             put("timestampRawNs", nanoTime())
             put("sampleTime", position)
         }
+    }
+
+    /** Numeric diagnostics only; packet data, cookies and session keys are never logged here. */
+    private fun logTimelineLocked(event: String, nowNtp: BigInteger? = null) {
+        if (!timelineDiagnostics) return
+        val position = positionLocked()
+        val start = feedStartTimestamp
+        val drift = if (start != null && lastFedEndTimestamp != null)
+            ((lastFedEndTimestamp!! - start - fedSamples) and U32).toInt().toLong() else null
+        log("Buffered timeline: event=$event rate=$rate position=$position anchorRtp=$anchorRtp " +
+            "anchorNtp=$anchorNtp nowNtp=$nowNtp rawNs=${nanoTime()} feedRtp=$start " +
+            "feedNs=$feedStartNs fedSamples=$fedSamples lastFedEnd=$lastFedEndTimestamp " +
+            "packetDriftSamples=$drift retainedFrames=${fed.size} retainedRtp=${fed.peekFirst()?.timestamp} " +
+            "queueFrames=${queue.size} nextRtp=${queue.peekFirst()?.timestamp} " +
+            "nextMediaTime=${queue.peekFirst()?.apap?.mediaTimeValue} nextSequence=${queue.peekFirst()?.sequence}")
     }
 
     private fun positionLocked(): Long? {
@@ -269,13 +424,22 @@ internal class BufferedAudioStream(
     private fun anchorLocked(): Map<String, Any?>? {
         val rtp = anchorRtp ?: return null
         val at = anchorNtp ?: return null
-        return anchorPlist(rtp, at, rate)
+        return anchorPlist(rtp, at, rate).toMutableMap().apply {
+            if (apap) {
+                put("mediaTimeValue", rtp)
+                put("mediaTimeScale", format.sampleRate)
+                put("status", 0)
+            }
+        }
     }
+
+    private fun shouldDropLocked(frame: Frame): Boolean =
+        flushUntil?.let { before(frame.timestamp, it) } == true || flushRanges.any { frame in it }
 
     private fun dropBeforeLocked(timestamp: Long) {
         flushUntil = timestamp
         while (queue.peekFirst()?.let { before(it.timestamp, timestamp) } == true) {
-            queuedBytes -= queue.pollFirst()!!.rtp.size
+            queuedBytes -= queue.pollFirst()!!.bytes
         }
         lock.notifyAll()
     }
@@ -286,7 +450,7 @@ internal class BufferedAudioStream(
             val end = (frame.timestamp + SAMPLES_PER_FRAME) and U32
             end == position || before(end, position)
         } == true) {
-            queuedBytes -= fed.removeFirst().rtp.size
+            queuedBytes -= fed.removeFirst().bytes
         }
         lock.notifyAll()
     }
@@ -302,6 +466,8 @@ internal class BufferedAudioStream(
             .onFailure { log("Buffered audio: output cleanup failed (${it.javaClass.simpleName})") }
         feedStartTimestamp = null
         fedSamples = 0
+        lastFedEndTimestamp = null
+        outputFormat = null
     }
 
     override fun close() {
@@ -317,9 +483,11 @@ internal class BufferedAudioStream(
                 client = null
                 queue.clear()
                 fed.clear()
+                flushRanges.clear()
                 queuedBytes = 0
                 rate = 0
                 restartOutputLocked()
+                spatialOutput?.close()
             } finally {
                 outputCleanupComplete = true
                 lock.notifyAll()
@@ -355,18 +523,16 @@ internal class BufferedAudioStream(
          * One buffered frame: RTP header, ChaCha20-Poly1305 ciphertext and tag sealed with [key] (the
          * header's timestamp and SSRC as associated data), then an 8-byte nonce. Null when it does not open.
          */
-        internal fun open(key: ByteArray, body: ByteArray): Frame? {
+        internal fun open(key: ByteArray, body: ByteArray): Frame? = open(AudioPacketOpener(key), body)
+
+        private fun open(opener: AudioPacketOpener, body: ByteArray): Frame? {
             if (body.size < RTP_HEADER + TAG_BYTES + NONCE_BYTES) return null
             // This wire format has exactly a 12-byte RTP v2 header; extensions, padding and CSRCs
             // cannot be interpreted as ciphertext or passed to the AAC renderer.
             if ((body[0].toInt() and 0xff) != 0x80) return null
-            val sealedEnd = body.size - NONCE_BYTES
-            val nonce = ByteArray(12).also { body.copyInto(it, 4, sealedEnd, body.size) }
-            val payload = runCatching {
-                AirPlayCrypto.chachaOpen(key, nonce, body.copyOfRange(RTP_HEADER, sealedEnd), body.copyOfRange(4, RTP_HEADER))
-            }.getOrNull() ?: return null
+            val rtp = runCatching { opener.open(body) }.getOrNull() ?: return null
             val sequence = ((body[2].toInt() and 0xff) shl 8) or (body[3].toInt() and 0xff)
-            return Frame(sequence, u32(body, 4), body.copyOf(RTP_HEADER) + payload)
+            return Frame(sequence, u32(body, 4), rtp)
         }
 
         /**

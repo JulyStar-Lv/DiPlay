@@ -282,6 +282,7 @@ internal class MicrophoneUplink(
         val frame = ByteArray(config.frameBytes)
         val readBuffer = ByteArray(maxOf(frame.size, MIN_READ_BYTES))
         val counters = MicrophoneCounters()
+        val packetSealer = MicrophonePacketizer.Sealer(config.key)
         val routeInfo = { routeType(recorder) }
         val ownSession = recorder.audioSessionId
         val silence = audioManager?.let { manager -> { silenceDetail(manager, ownSession) } }
@@ -362,7 +363,7 @@ internal class MicrophoneUplink(
                             }
                         }
                         stats.level(frame)
-                        sendFrame(socket, counters, frame)
+                        sendFrame(socket, counters, packetSealer, frame)
                         filled = 0
                     }
                 }
@@ -389,7 +390,12 @@ internal class MicrophoneUplink(
         false
     }
 
-    private fun sendFrame(socket: DatagramSocket, counters: MicrophoneCounters, frame: ByteArray) {
+    private fun sendFrame(
+        socket: DatagramSocket,
+        counters: MicrophoneCounters,
+        packetSealer: MicrophonePacketizer.Sealer,
+        frame: ByteArray,
+    ) {
         val bodies = if (config.codec == AudioCodecKind.OPUS) {
             opusEncoder?.encode(frame).orEmpty()
         } else {
@@ -400,6 +406,7 @@ internal class MicrophoneUplink(
             sendPacket(
                 socket = socket,
                 counters = counters,
+                packetSealer = packetSealer,
                 body = body,
                 samples = config.rtpSamplesPerPacket,
             )
@@ -409,11 +416,11 @@ internal class MicrophoneUplink(
     private fun sendPacket(
         socket: DatagramSocket,
         counters: MicrophoneCounters,
+        packetSealer: MicrophonePacketizer.Sealer,
         body: ByteArray,
         samples: Int,
     ) {
-        val packet = MicrophonePacketizer.sealPacket(
-            key = config.key,
+        val packet = packetSealer.sealPacket(
             payloadType = config.payloadType,
             counters = counters,
             body = body,

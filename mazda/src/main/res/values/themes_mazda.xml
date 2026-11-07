@@ -1,0 +1,9 @@
+<resources>
+    <!-- Match the OEM scene app's Activity occlusion while drawing transparent cockpit margins.
+         Suppress the starting preview when forwarding to a retained CarPlay session. -->
+    <style name="Theme.Xcertplay.Mazda" parent="Theme.Xcertplay">
+        <item name="android:windowIsTranslucent">false</item>
+        <item name="android:windowShowWallpaper">false</item>
+        <item name="android:windowDisablePreview">true</item>
+    </style>
+</resources>

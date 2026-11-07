@@ -48,7 +48,7 @@ class AudioClockTrimTest {
         set("startThresholdBytes", 57_600)
         set("bytesPerSecond", 48_000 * 4)
         // 300 ms of music is the target; createTrack sets this up for music only.
-        set("clockTrim", MediaClockTrim(48_000, 14_400))
+        set("clockTrim", MediaClockTrim(48_000, 14_400, measuresTarget = true))
     }
 
     @After fun tearDown() {
@@ -63,22 +63,23 @@ class AudioClockTrimTest {
         Int::class.javaPrimitiveType, Int::class.javaPrimitiveType).apply { isAccessible = true }
         .invoke(renderer, ByteArray(bytes), 0, bytes)
 
-    @Test fun aLowLevelSlowsTheTrackAndTheStatsShowTheRate() {
+    @Test fun aLowStartupLevelDoesNotImmediatelyChangePitchAndTheStatsShowTheRate() {
         // 150 ms queued against a 300 ms target.
         write(28_800)
-        assertEquals(listOf(47_280), RateTrack.rates)
+        assertTrue(RateTrack.rates.isEmpty())
         type.getDeclaredMethod("logStatsIfDue", Boolean::class.javaPrimitiveType).apply { isAccessible = true }
             .invoke(renderer, true)
-        assertTrue(reports.toString(), reports.any { it.startsWith("audio stats") && it.contains(" playbackRate=47280 ended=true") })
+        assertTrue(reports.toString(), reports.any { it.startsWith("audio stats") && it.contains(" playbackRate=48000 ended=true") })
     }
 
     @Test fun aTrackThatRefusesTheRateKeepsPlayingWithoutTheTrim() {
         RateTrack.result = AudioTrack.ERROR_INVALID_OPERATION
+        set("clockTrim", MediaClockTrim(48_000, 14_400, integral = -0.0075, measuresTarget = true))
         write(28_800)
         assertNull(get("clockTrim"))
-        assertTrue(reports.toString(), reports.contains("Audio: clock trim off audioType=media rate=47280 result=-3"))
+        assertTrue(reports.toString(), reports.contains("Audio: clock trim off audioType=media rate=47640 result=-3"))
         write(28_800)
-        assertEquals(listOf(47_280), RateTrack.rates)
+        assertEquals(listOf(47_640), RateTrack.rates)
     }
 
     @Test fun nothingIsTrimmedBeforeMusicPlays() {

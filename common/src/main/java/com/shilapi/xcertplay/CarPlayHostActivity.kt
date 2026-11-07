@@ -1,5 +1,12 @@
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.mazda.MzdIntegration
+import com.shilapi.xcertplay.mazda.MzdCarAppLayout
+import com.shilapi.xcertplay.mazda.MzdConnectionView
+import com.shilapi.xcertplay.mazda.MzdViewAreas
+import com.shilapi.xcertplay.mazda.MzdVideoLayout
+import com.shilapi.xcertplay.mazda.MzdVideoCanvas
+import com.shilapi.xcertplay.mazda.MzdVideoCoordinator
 import android.app.AlertDialog
 import android.Manifest
 import android.content.ActivityNotFoundException
@@ -218,7 +225,8 @@ open class CarPlayHostActivity : ComponentActivity() {
         hostMac = DiPlayBootstrap.deviceId(airPlayIdentity).split(":").map { it.toInt(16).toByte() }.toByteArray(),
         wirelessBluetoothDeviceAddress = DiPlayPreferences.phoneAddress(this),
         transport = if (wirelessEnabled) CarPlayTransport.WIRELESS else CarPlayTransport.WIRED,
-        wirelessHotspotMode = wirelessHotspotMode,
+        wirelessHotspotMode = com.shilapi.xcertplay.mazda.MzdWirelessConnection.runtimeMode(this, wirelessHotspotMode,
+            manualHotspotSsid, manualHotspotPassphrase),
         wifiP2pPreferredChannel = AirPlayPersistence.loadWifiP2pPreferredChannel(this),
         manualHotspotSsid = manualHotspotSsid,
         manualHotspotPassphrase = manualHotspotPassphrase,
@@ -363,6 +371,7 @@ open class CarPlayHostActivity : ComponentActivity() {
     }
     private var fallbackVideoView: SurfaceView? = null
     private var fallbackVideoBounds: CarPlaySurfaceBounds? = null
+    private var mazdaVideo: MzdVideoCoordinator? = null
     // The last picture of a SurfaceView video output, kept when its surface goes (DiPlay leaves the screen) and
     // shown over the new surface until a new frame is rendered there: a still CarPlay screen sends no frame, so
     // the new surface would otherwise stay black until the next change (a touch).
@@ -370,6 +379,7 @@ open class CarPlayHostActivity : ComponentActivity() {
     private var pictureHold: ImageView? = null
     private var pictureHoldBaseline = -1L
     private var pictureHoldStartMillis = 0L
+    private var pictureHoldAwaitTexture = false
     private var pictureCopyThreadStarted = false
     private val pictureCopyThread by lazy {
         pictureCopyThreadStarted = true
@@ -377,15 +387,13 @@ open class CarPlayHostActivity : ComponentActivity() {
     }
     private val pictureHoldTick = object : Runnable {
         override fun run() {
-            val hold = pictureHold ?: return
-            val rendered = sink?.liveVideoCounters()?.rendered ?: -1L
+            if (pictureHold == null) return
+            // A decoded frame can precede TextureView's first presentation callback.
+            val rendered = if (pictureHoldAwaitTexture) -1L else sink?.liveVideoCounters()?.rendered ?: -1L
             val elapsed = SystemClock.uptimeMillis() - pictureHoldStartMillis
             if (lastPictureDone(rendered, pictureHoldBaseline, elapsed, PICTURE_HOLD_MAX_MILLIS)) {
                 appendLog("Last picture hidden after ${elapsed} ms (${if (elapsed > PICTURE_HOLD_MAX_MILLIS) "timeout" else "new frame"})")
-                hold.animate().alpha(0f).setDuration(150L).withEndAction {
-                    hold.visibility = View.GONE
-                    hold.setImageDrawable(null)
-                }.start()
+                hideLastPicture()
                 return
             }
             mainHandler.postDelayed(this, 50L)
@@ -571,6 +579,7 @@ open class CarPlayHostActivity : ComponentActivity() {
     private var remoteMfiToken = ""
     private var wirelessPermissionsReady = false
     private var wirelessHotspotMode = WirelessHotspotMode.WIFI_P2P
+    @Volatile private var mazdaLocalHotspotFailed = false
     private var manualHotspotSsid = ""
     private var existingWifiSsid = ""
     private var existingWifiPassphrase = ""
@@ -771,6 +780,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         val size = pendingDisplaySize ?: return@Runnable
         pendingDisplaySize = null
         applyDisplaySize(size)
+        mazdaVideo?.settle(size.width, size.height)
     }
 
     private val textureListener = object : TextureView.SurfaceTextureListener {
@@ -788,8 +798,11 @@ open class CarPlayHostActivity : ComponentActivity() {
                     currentSurfaceTexture = texture
                 }
             }
+            if (existing !== surface) mazdaVideo?.surfaceChanged()
             appendLog(if (existing === surface) "Texture surface reused" else "Texture surface created")
+            if (MzdIntegration.enabled(this@CarPlayHostActivity)) showLastPicture()
             attachSurface(surface)
+            if (MzdIntegration.enabled(this@CarPlayHostActivity)) sink?.refreshPicture(SCREEN_TYPE_MAIN)
             updateVideoLayout(width, height)
             scheduleDisplaySize(width, height)
         }
@@ -803,11 +816,15 @@ open class CarPlayHostActivity : ComponentActivity() {
             if (currentSurfaceTexture !== texture) return true
             currentSurface?.let(videoSurfaceOwner::clear)
             currentSurfaceTexture = null
+            mazdaVideo?.surfaceChanged()
             appendLog("Texture surface destroyed")
             return true
         }
 
-        override fun onSurfaceTextureUpdated(texture: SurfaceTexture) = Unit
+        override fun onSurfaceTextureUpdated(texture: SurfaceTexture) {
+            if (currentSurfaceTexture === texture && pictureHoldAwaitTexture) hideLastPicture()
+            if (currentSurfaceTexture === texture) mazdaVideo?.textureUpdated()
+        }
     }
 
     private val fallbackSurfaceCallback = object : SurfaceHolder.Callback {
@@ -815,6 +832,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             if (isDestroyed || holder !== fallbackVideoView?.holder) return
             val surface = holder.surface
             videoSurfaceOwner.replace(surface, releaseOnDetach = false)
+            mazdaVideo?.surfaceChanged()
             appendLog("SurfaceView video surface created valid=${surface.isValid}")
             attachSurface(surface)
             videoView?.let { updateVideoLayout(it.width, it.height) }
@@ -835,6 +853,7 @@ open class CarPlayHostActivity : ComponentActivity() {
 
         override fun surfaceDestroyed(holder: SurfaceHolder) {
             val surface = holder.surface
+            if (surface === currentSurface) mazdaVideo?.surfaceChanged()
             captureLastPicture()
             // The SurfaceHolder contract: nothing may render to the surface once this returns. Every decoder
             // is asked at once, then waited for against one deadline; each confirms once it has moved,
@@ -888,7 +907,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         airPlayIdentity = AirPlayPersistence.loadIdentity(this)
         loadPersistedSettings()
         locationPermissionAvailable = hasFineLocationPermission()
-        setContentView(buildContentView())
+        setContentView(MzdIntegration.wrap(this, buildContentView()))
         applyFullscreenMode()
         onBackPressedDispatcher.addCallback(
             this,
@@ -1574,6 +1593,8 @@ open class CarPlayHostActivity : ComponentActivity() {
         adbClusterConfigured = false
         clusterStreamOnDisplay = false
         requestedSmallWindowForStream = null
+        // TBT-only integrations must not negotiate screen 111 from a saved cluster-map preference.
+        if (application is VehicleDisplayProvider) return null
         if (!AirPlayPersistence.loadClusterMapEnabled(this)) return null
         // 已选择的 ADB 路由使用固定尺寸，无需启动仪表 Activity 才能准备流参数。
         if (AdbClusterRouter.enabled(this)) {
@@ -2016,7 +2037,22 @@ open class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun buildContentView(): View {
-        val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+        val preparationContext = MzdConnectionView.preparationContext(this)
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(Color.BLACK)
+            if (MzdIntegration.enabled(this@CarPlayHostActivity)) clipChildren = false
+        }
+        val videoCanvas = if (MzdIntegration.enabled(this)) MzdVideoCanvas(this).also { canvas ->
+            root.addView(canvas, FrameLayout.LayoutParams(-1, -1))
+            canvas.addOnLayoutChangeListener { _, l, t, r, b, oldL, oldT, oldR, oldB ->
+                if (r - l != oldR - oldL || b - t != oldB - oldT) {
+                    // A prepared layer already has its target chrome. Other layouts still
+                    // need the logical viewport, since the video Surface never changes size.
+                    if (mazdaVideo?.isPanelMoving != true) updateVideoChrome(r - l, b - t)
+                    scheduleDisplaySize(r - l, b - t)
+                }
+            }
+        } else root
         val video = TextureView(this).apply {
             isOpaque = false
             surfaceTextureListener = textureListener
@@ -2026,10 +2062,10 @@ open class CarPlayHostActivity : ComponentActivity() {
             isClickable = true
             setOnTouchListener { view, event -> onHostTouch(view, event) }
         }
-        root.addView(video, FrameLayout.LayoutParams(-1, -1))
+        videoCanvas.addView(video, FrameLayout.LayoutParams(-1, -1))
         blackCornerOverlay = CarPlayBlackCornerOverlay(this).also { overlay ->
             overlay.radiusDp = localCornerRadius()
-            root.addView(overlay, FrameLayout.LayoutParams(-1, -1))
+            videoCanvas.addView(overlay, FrameLayout.LayoutParams(-1, -1))
         }
         root.addView(gestureLayer, FrameLayout.LayoutParams(-1, -1))
         // Measure the preparation content naturally, then fit it inside the safe viewport.
@@ -2074,14 +2110,14 @@ open class CarPlayHostActivity : ComponentActivity() {
             visibility = View.GONE
         }
         panel.addView(help)
-        val recovery = DiPlayButton(this).apply {
+        val recovery = DiPlayButton(preparationContext).apply {
             text = getString(R.string.reset_carplay_wi_fi)
             visibility = View.GONE
             setOnClickListener { showDiPlayHome("wireless-recovery") }
             wifiRecoveryButton = this
         }
         panel.addView(recovery, LinearLayout.LayoutParams(dp(300), dp(64)).apply { bottomMargin = dp(12) })
-        val retry = DiPlayButton(this).apply {
+        val retry = DiPlayButton(preparationContext).apply {
             text = getString(R.string.retry_carplay_connection)
             visibility = View.GONE
             setOnClickListener {
@@ -2120,7 +2156,6 @@ open class CarPlayHostActivity : ComponentActivity() {
             retry.style(DiPlayButtonKind.SECONDARY, buttonPalette, overlay = false)
             recovery.style(DiPlayButtonKind.SECONDARY, buttonPalette, overlay = false)
         }
-        paintWaitingScreen()
         viewport.addView(panel, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER))
         root.addView(viewport, FrameLayout.LayoutParams(-1, -1))
         // Above the video and gesture layer, below the menus.
@@ -2206,6 +2241,23 @@ open class CarPlayHostActivity : ComponentActivity() {
         connectionHelpView = help
         connectionPanel = viewport
         updateDebugOverlays()
+        if (MzdIntegration.enabled(this)) {
+            val mazda = MzdConnectionView(preparationContext, appNight, { MzdIntegration.exitApp(this) },
+                settings = { showDiPlayHome("settings") }, back = { showDiPlayHome() }, wireless = wirelessEnabled)
+            mazda.addRecovery(recovery)
+            mazda.addRecovery(retry)
+            mazda.hint.text = settingsGestureHintText()
+            stageStatusView = mazda.stage
+            connectionInstructionsView = mazda.instructions
+            connectionHelpView = mazda.help
+            settingsGestureHint = mazda.hint
+            connectionPanel = mazda
+            paintWaitingScreen = { mazda.paint(appNight) }
+            mazda.replace(viewport)
+            updateDebugOverlays()
+        }
+        // Only the active page owns recovery-button styling, including later size changes.
+        paintWaitingScreen()
         return root
     }
 
@@ -2541,7 +2593,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             MotionEvent.ACTION_DOWN -> {
                 val from = sidePanelOpenEdge() ?: return false
                 val view = videoView ?: return false
-                sidePanelScreen = sidePanelScreenRect(view.width, view.height) ?: return false
+                sidePanelScreen = sidePanelScreenRect(videoViewportWidth(view.width), view.height) ?: return false
                 sidePanelEdge = when (from) {
                     Gravity.BOTTOM -> Gravity.TOP
                     Gravity.LEFT -> Gravity.END
@@ -2684,7 +2736,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         val contents = dp(32).toFloat()
         sidePanelContents?.setRenderEffect(
             RenderEffect.createBlurEffect(contents, contents, Shader.TileMode.DECAL))
-        val content = contentRect(view.width, view.height)
+        val content = contentRect(videoViewportWidth(view.width), view.height)
         val width = (content.width / 4).toInt().coerceAtLeast(1)
         val height = (content.height / 4).toInt().coerceAtLeast(1)
         val show = { picture: Bitmap ->
@@ -2724,9 +2776,11 @@ open class CarPlayHostActivity : ComponentActivity() {
     private fun showSidePanel(show: Boolean) {
         val areas = sessionDisplay?.viewAreas ?: return
         val view = videoView ?: return
-        val split = isMultiWindowActive()
-        val portrait = if (split) screenPortrait() else view.height > view.width
-        val target = if (show) areas.sidePanel(portrait, SidePanelSettings.sixths(this)) else areas.indexFor(view.width, view.height, split, portrait)
+        val width = videoViewportWidth(view.width)
+        val split = isMultiWindowActive() || (MzdIntegration.cockpit(this) &&
+            MzdViewAreas.isNarrow(width, view.height))
+        val portrait = if (split) screenPortrait() else view.height > width
+        val target = if (show) areas.sidePanel(portrait, SidePanelSettings.sixths(this)) else areas.indexFor(width, view.height, split, portrait)
         val sent = target != null && controller?.showViewArea(target) == true
         appendLog("Side panel ${if (show) "shown" else "hidden"}: view area $target sent=$sent")
         if (!sent || target == null) return
@@ -2745,7 +2799,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         sidePanel?.visibility = View.GONE
         mainHandler.removeCallbacks(sidePanelTick)
         com.shilapi.xcertplay.hud.BydTyreStatus.stop()
-        videoView?.let { placeSidePanelTab(it.width, it.height) }
+        videoView?.let { placeSidePanelTab(videoViewportWidth(it.width), it.height) }
     }
 
     // Tyres through the head unit's adb shell; the reader stops by itself where there is no BYD autoservice.
@@ -4491,7 +4545,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         }
         val modes = buildList {
             add(WirelessHotspotMode.MANUAL to getString(R.string.settings_built_in_car_hotspot_recommended))
-            add(WirelessHotspotMode.WIFI_P2P to getString(R.string.wi_fi_p2p_5_ghz))
+            if (!MzdIntegration.enabled(this@CarPlayHostActivity)) add(WirelessHotspotMode.WIFI_P2P to getString(R.string.wi_fi_p2p_5_ghz))
             add(WirelessHotspotMode.EXISTING_WIFI to getString(R.string.existing_wifi_title))
         }
         var selectedId = View.NO_ID
@@ -4706,6 +4760,8 @@ open class CarPlayHostActivity : ComponentActivity() {
             return error == null
         }
         if (wirelessHotspotMode != WirelessHotspotMode.MANUAL) return true
+        if (com.shilapi.xcertplay.mazda.MzdWirelessConnection.runtimeMode(this, wirelessHotspotMode,
+                manualHotspotSsid, manualHotspotPassphrase) == WirelessHotspotMode.LOCAL_ONLY_HOTSPOT) return true
         val error = when {
             manualHotspotSsid.isBlank() -> getString(R.string.hotspot_ssid_is_required)
             manualHotspotSsid.encodeToByteArray().size > 32 ->
@@ -5037,7 +5093,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             } else null
         }
         val longPixels = maxOf(display.widthPixels, display.heightPixels)
-        val square = if (CarPlayRotation.enabled(this) && !inSplitScreen) {
+        val square = if (!MzdIntegration.cockpit(this) && CarPlayRotation.enabled(this) && !inSplitScreen) {
             CarPlayRotation.squareSide(longPixels, CarPlayRotation.picture(this), sessionHevc, hevcSoftwareDecoderEnabled)
         } else null
         val canvas = if (square == null) display else {
@@ -5049,7 +5105,10 @@ open class CarPlayHostActivity : ComponentActivity() {
             display.copy(widthPixels = square, heightPixels = square, widthPhysicalMm = squareMm,
                 heightPhysicalMm = squareMm, viewArea = null, safeArea = null)
         }
-        val viewAreas = if (square == null) {
+        val viewAreas = if (MzdIntegration.cockpit(this)) {
+            MzdViewAreas.build(display.widthPixels, display.heightPixels, dock,
+                videoViewportWidth(videoView?.width ?: 0) == 1728, SidePanelSettings.enabled(this), rightHandDrive)
+        } else if (square == null) {
             CarPlayViewAreas.build(display.widthPixels, display.heightPixels, listOf(
                 CarPlayViewAreas.Screen(display.widthPixels, display.heightPixels, portrait = display.heightPixels > display.widthPixels),
             ), dock, splitWindow, startPortrait = display.heightPixels > display.widthPixels,
@@ -5088,6 +5147,16 @@ open class CarPlayHostActivity : ComponentActivity() {
         appendLog(effectiveSummary)
         val carBluetoothAudio = AirPlayPersistence.loadCarBluetoothAudio(this)
         if (carBluetoothAudio) logCarBluetoothAudio()
+        val spatialFormats = if (AirPlayPersistence.loadSpatialAudio(this) && !carBluetoothAudio) {
+            runCatching { com.shilapi.xcertplay.media.SpatialAudioSupport.formats(this) }.getOrDefault(emptyList())
+                .filter { !AirPlayPersistence.loadSpatialPcmDcx(this) || it == 68 }
+        } else emptyList()
+        val dolbyDcxEnabled = AirPlayPersistence.loadSpatialPcmDcx(this) && 68 in spatialFormats &&
+            com.shilapi.xcertplay.media.SpatialAudioSupport.hasPcmDcxDecoder()
+        if (AirPlayPersistence.loadSpatialAudio(this)) appendLog(
+            "Spatial audio: experimental APAC formats=$spatialFormats; receiverDcx=$dolbyDcxEnabled; sender selects per-item badge")
+        if (AirPlayPersistence.loadSpatialPcmDcx(this)) appendLog(
+            "PCM DCX: selected; spatialFormats=$spatialFormats; requires 48kHz PCM16 12ch; no fallback on codec failure")
         return AirPlayConfig(
             deviceName = "DiPlay",
             deviceId = DiPlayBootstrap.deviceId(airPlayIdentity),
@@ -5105,9 +5174,12 @@ open class CarPlayHostActivity : ComponentActivity() {
             icons = listOf(loadAirPlayIcon()),
             videoInCar = com.shilapi.xcertplay.hud.BydOutputSettings.videoWhileParkedActive(this),
             mainBufferedAudio = AirPlayPersistence.loadMainBufferedAudio(this),
+            spatialAudioFormats = spatialFormats,
+            dolbyDcxEnabled = dolbyDcxEnabled,
             speechWithout8And16Khz = AirPlayPersistence.loadSpeechWithout8And16Khz(this),
             callAtCallRate = AirPlayPersistence.loadCallAtCallRate(this),
             disableAudioOutput = carBluetoothAudio,
+            routeSharing = routeSharingCaptureDirectory() != null,
         )
     }
 
@@ -5179,7 +5251,7 @@ open class CarPlayHostActivity : ComponentActivity() {
     private fun currentActivitySize(): DisplaySize? {
         val view = videoView
         if (view != null && view.width > 0 && view.height > 0) {
-            return DisplaySize(view.width, view.height)
+            return DisplaySize(videoViewportWidth(view.width), view.height)
         }
         return activeDisplaySize
     }
@@ -5332,6 +5404,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             vendorLowLatencyDecoder = AirPlayPersistence.loadLowLatencyDecoder(this),
             mtkDecoderTuningEnabled = AirPlayPersistence.loadMtkDecoderTuning(this),
             navigationPromptAudioFocus = AirPlayPersistence.loadNavigationPromptAudioFocus(this),
+            spatialPcmDcx = AirPlayPersistence.loadSpatialPcmDcx(this) && AirPlayPersistence.loadSpatialAudio(this),
         )
     }
 
@@ -5340,6 +5413,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             sink = sink,
             microphoneEnabled = microphoneAvailable,
             audioCaptureDirectory = audioCaptureDirectory(),
+            routeCaptureDirectory = routeSharingCaptureDirectory(),
         )
 
     private fun createSessionListener(controllerGeneration: Int): AirPlaySessionListener =
@@ -5386,6 +5460,27 @@ open class CarPlayHostActivity : ComponentActivity() {
                     if (menuOpen) return@runOnUiThread
                     appendLog("AirPlay session active")
                 }
+            }
+
+            override fun onHostUiRequested(session: AirPlaySession): Boolean {
+                if (!MzdIntegration.enabled(this@CarPlayHostActivity)) return false
+                runOnUiThread {
+                    // OEM is a controller-wide command. It may arrive on a control connection
+                    // other than the video session cached by this UI. The controller filters old
+                    // wireless runs; here validate only this UI generation and its ownership.
+                    if (controllerGeneration != restartGeneration || isFinishing || isDestroyed ||
+                        !CarPlayBackgroundSession.isOwner(this@CarPlayHostActivity)) {
+                        Log.i("DiPlayUi", "OEM request ignored: stale UI generation/owner or closing window")
+                        return@runOnUiThread
+                    }
+                    // Match the home page's close button: reveal the existing Launcher page
+                    // (including AppList) without navigating HOME or stopping CarPlay.
+                    Log.i("DiPlayUi", "OEM exit requested; closing DiPlay and retaining CarPlay session")
+                    MzdIntegration.exitApp(this@CarPlayHostActivity)
+                    if (!isFinishing) finish()
+                }
+                // Also consume stale callbacks: they must not send an unqualified HOME elsewhere.
+                return true
             }
 
             override fun onVideoFrameRendered(session: AirPlaySession) {
@@ -5479,6 +5574,14 @@ open class CarPlayHostActivity : ComponentActivity() {
         controllerGeneration: Int,
     ): (CarPlayStatus) -> Unit = report@{ status ->
         if (controllerGeneration != restartGeneration) return@report
+        if (status is CarPlayStatus.Failed && mazdaLocalHotspotFailed) {
+            mazdaLocalHotspotFailed = false
+            startupRetryStopped = true
+            stopBackgroundSession {
+                OwnScreenStart.start(this, com.shilapi.xcertplay.mazda.MzdWirelessConnection.fallbackIntent(this), ::appendLog)
+            }
+            return@report
+        }
         if (status is CarPlayStatus.RunningControl || status is CarPlayStatus.RunningWireless) {
             controlRunningCount++
             lossSinceControlRunning = false
@@ -5504,6 +5607,9 @@ open class CarPlayHostActivity : ComponentActivity() {
             LastConnectionProblem.follow(this, status)
         }
         connectionInstructionsView?.text = connectionInstructions(status)
+        com.shilapi.xcertplay.mazda.MzdWirelessConnection.wifiWarning(this, wirelessHotspotMode)?.let {
+            connectionInstructionsView?.append("\n\n$it")
+        }
         // Keep the actionable tip readable while automatic retries are in progress.
         // Only a working AirPlay session, or a new failure, replaces it.
         if (status is CarPlayStatus.Failed) showConnectionHelp(status)
@@ -5544,6 +5650,10 @@ open class CarPlayHostActivity : ComponentActivity() {
         updateClusterMapShown()
         sink = snapshot.sink
         sessionDisplay = snapshot.display
+        if (MzdIntegration.enabled(this)) {
+            lastPicture = snapshot.returnPicture
+            showLastPicture()
+        }
         // The hotspot came up under the host that started this session; the menu keeps naming it.
         CarPlayBackgroundSession.hotspotReady?.let {
             hotspotStatus = hotspotStatus.copy(ssid = it.ssid, band = it.band, channel = it.channel, backend = it.backend)
@@ -5561,10 +5671,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         MapMirrors.reapply()
         CarPlayBackgroundSession.store(snapshot.controller, snapshot.sink, snapshot.width, snapshot.height,
             this, snapshot.display) { completion ->
-            runOnUiThread {
-                shutdown(false, "DiPlay disconnect", completion)
-                finish()
-            }
+            runOnUiThread { stopBackgroundSession(completion) }
         }
         callPopupSessionReady = CarPlayBackgroundSession.callPopupReady
         updateCallPopupGuard()
@@ -5634,7 +5741,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         } else {
             size
         }
-        val airPlayConfig = createAirPlayConfig(effectiveSize)
+        val airPlayConfig = createAirPlayConfig(if (MzdIntegration.cockpit(this)) DisplaySize(2496, 1080) else effectiveSize)
         val locationProvider: Iap2LocationProvider? =
             when {
                 !config.locationReportingEnabled -> null
@@ -5690,8 +5797,13 @@ open class CarPlayHostActivity : ComponentActivity() {
         val pairings = AirPlayPersistence.loadPairings(this) { id, key ->
             AirPlayPersistence.savePairing(this, id, key)
         }
+        mazdaLocalHotspotFailed = false
         val next = CarPlayController(
             context = this,
+            localHotspotFactory = com.shilapi.xcertplay.mazda.MzdWirelessConnection.hotspotFactory(this, config.wirelessHotspotMode, config.transport) { mazdaLocalHotspotFailed = true },
+            firstTcpTimeoutMillis = com.shilapi.xcertplay.mazda.MzdWirelessConnection.firstTcpTimeoutMillis(this, config.wirelessHotspotMode),
+            displayFactory = (application as? VehicleDisplayProvider)?.vehicleDisplayFactory
+                ?: com.shilapi.display.api.VehicleDisplayFactory.NONE,
             config = config,
             airPlayConfig = airPlayConfig,
             identity = airPlayIdentity,
@@ -5723,10 +5835,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         sessionDisplay = display
         videoView?.let { updateVideoLayout(it.width, it.height) }
         CarPlayBackgroundSession.store(next, renderer, size.width, size.height, this, display) { completion ->
-            runOnUiThread {
-                shutdown(terminateProcess = false, reason = "DiPlay disconnect", completion = completion)
-                finish()
-            }
+            runOnUiThread { stopBackgroundSession(completion) }
         }
         try {
             ContextCompat.startForegroundService(this, Intent(this, DiPlaySessionService::class.java))
@@ -5796,27 +5905,55 @@ open class CarPlayHostActivity : ComponentActivity() {
         return File(filesDir, AUDIO_CAPTURE_DIRECTORY)
     }
 
-    private fun scheduleDisplaySize(width: Int, height: Int) {
+    private fun routeSharingCaptureDirectory(): File? {
+        val directory = getExternalFilesDir(null) ?: return null
+        if (!File(directory, "route-sharing.enabled").isFile) return null
+        return File(directory, "route-sharing-captures")
+    }
+
+    private fun videoViewportWidth(outputWidth: Int): Int {
+        val canvas = videoView?.parent as? MzdVideoCanvas
+        return if (canvas?.isFixedCanvas == true && outputWidth == MzdVideoCanvas.WIDTH)
+            canvas.width else outputWidth
+    }
+
+    private fun scheduleDisplaySize(outputWidth: Int, height: Int) {
+        // Surface callbacks report the unchanged full canvas; negotiation follows the panel crop.
+        val width = videoViewportWidth(outputWidth)
         if (width <= 0 || height <= 0 || shuttingDown.get()) return
         val size = DisplaySize(width, height)
+        if (mazdaVideo?.isPanelMoving == true) {
+            // The video viewport is prepared once at the target size. Its layer is still moving;
+            // leave endpoint bookkeeping and frame validation until that motion has finished.
+            mainHandler.removeCallbacks(applyDisplaySize)
+            pendingDisplaySize = size
+            return
+        }
         if (size == pendingDisplaySize) return
         mainHandler.removeCallbacks(applyDisplaySize)
-        if (size == activeDisplaySize && !displayLayoutChanged()) {
+        // A retained session remembers its startup window size, but its area can have
+        // changed since then. A reopened Mazda host has no transition coordinator yet.
+        val areaMatches = sidePanelShown || mazdaVideoIntegration()?.areaMatches(width, height) != false
+        if (size == activeDisplaySize && !displayLayoutChanged() && areaMatches) {
             pendingDisplaySize = null
+            mazdaVideo?.settle(size.width, size.height)
             // A rotation back can cancel the last pending resize after teardown has finished.
             maybeStartCarPlay()
             return
         }
         pendingDisplaySize = size
-        // With a turning screen's square canvas nothing reconnects, so the turn need not wait for the size to settle.
+        // Mazda's animation has reached an exact OEM endpoint: move the view area now, rather
+        // than waiting another 500 ms after the last animated resize. Intermediate sizes debounce.
+        // A turning screen's square canvas likewise needs no reconnect or settling delay.
         mainHandler.postDelayed(applyDisplaySize,
-            if (sessionDisplay?.viewAreas?.turnsWithScreen == true) 0L else DISPLAY_CHANGE_DEBOUNCE_MILLIS)
+            if (sessionDisplay?.viewAreas?.turnsWithScreen == true ||
+                (sessionDisplay?.viewAreas != null && MzdIntegration.cockpit(this) &&
+                    MzdVideoLayout.isSettledPanel(width, height))) 0L else DISPLAY_CHANGE_DEBOUNCE_MILLIS)
     }
 
     private fun isMultiWindowActive(): Boolean {
         return Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInMultiWindowMode
     }
-
 
     private fun statusBarShown(): Boolean? =
         ViewCompat.getRootWindowInsets(window.decorView)?.isVisible(WindowInsetsCompat.Type.statusBars())
@@ -5881,7 +6018,8 @@ open class CarPlayHostActivity : ComponentActivity() {
     private fun applyViewArea(size: DisplaySize, display: CarPlaySessionDisplay): Boolean {
         val areas = display.viewAreas ?: return false
         if (controller == null || menuOpen || handshakeResetInProgress || shuttingDown.get()) return false
-        val split = isMultiWindowActive()
+        val split = isMultiWindowActive() || (MzdIntegration.cockpit(this) &&
+            MzdViewAreas.isNarrow(size.width, size.height))
         // A full window's own shape tells the screen's orientation; during a turn the display metrics and
         // rotation can lag behind the window. A split-screen window can have either shape, so it asks the
         // display, which is settled then.
@@ -5896,7 +6034,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         }
         val turned = previous != null && !split && (previous.height > previous.width) != portrait
         if (turned && !areas.turnsWithScreen) return false
-        if (split) {
+        if (split && !MzdIntegration.cockpit(this)) {
             // Against the whole screen, which the system bars (shown in BYD's split screen) do not change.
             val screen = android.util.DisplayMetrics().also { windowManager.defaultDisplay.getRealMetrics(it) }
             val screenLong = maxOf(screen.widthPixels, screen.heightPixels).toFloat()
@@ -5909,7 +6047,12 @@ open class CarPlayHostActivity : ComponentActivity() {
         val target = areas.indexFor(size.width, size.height, split, portrait) ?: return false
         if (sidePanelShown) resetSidePanel() // a turn or the split screen ends the side panel
         // The same whole-screen area without a turn (a camera window, say) keeps the usual handling.
-        if (!turned && target == areas.current && areas.kindOf(target) == CarPlayViewAreas.Kind.FULL_SCREEN) return false
+        // A Mazda transition can have requested the full area before the window reaches it.
+        // Complete that resize here too, including a session originally started in the narrow panel.
+        val mazdaEndpoint = mazdaVideo?.isTransitionShowing == true && MzdIntegration.cockpit(this) &&
+            MzdVideoLayout.isSettledPanel(size.width, size.height)
+        if (!turned && target == areas.current && areas.kindOf(target) == CarPlayViewAreas.Kind.FULL_SCREEN &&
+            !mazdaEndpoint) return false
         activeDisplaySize = size
         sessionDisplay = display.copy(rotation = displayRotation())
         val sent = if (target == areas.current) true else controller?.showViewArea(target) == true
@@ -5960,6 +6103,15 @@ open class CarPlayHostActivity : ComponentActivity() {
         // follow this. An area of the whole canvas keeps the usual fit.
         display.viewAreas?.let { areas ->
             val area = areas.layoutArea(areas.current)
+            if ((videoView?.parent as? MzdVideoCanvas)?.isFixedCanvas == true &&
+                MzdVideoLayout.isPanel(viewWidth, viewHeight)) {
+                return MzdVideoLayout.fixedCanvas(display.width, display.height, area, viewWidth)
+            }
+            if (MzdIntegration.cockpit(this) && MzdVideoLayout.isPanel(viewWidth, viewHeight)) {
+                // The OEM panel changes width before the iPhone changes view areas. Cover it
+                // throughout that interval instead of fitting a wide frame into a narrow window.
+                return MzdVideoLayout.cover(display.width, display.height, area, viewWidth, viewHeight)
+            }
             if (area.width != display.width || area.height != display.height) {
                 val scaleX = viewWidth.toFloat() / area.width
                 val scaleY = viewHeight.toFloat() / area.height
@@ -5978,7 +6130,9 @@ open class CarPlayHostActivity : ComponentActivity() {
             content.left + content.width, content.top + content.height))
         val fallback = fallbackVideoView
         if (fallback != null) {
-            val bounds = CarPlaySurfaceBounds.from(content)
+            val fixed = (view.parent as? MzdVideoCanvas)?.isFixedCanvas == true
+            val bounds = if (fixed) CarPlaySurfaceBounds.from(CarPlayVideoLayout(0f, 0f,
+                MzdVideoCanvas.WIDTH.toFloat(), MzdVideoCanvas.HEIGHT.toFloat())) else CarPlaySurfaceBounds.from(content)
             if (fallbackVideoBounds != bounds) {
                 fallbackVideoBounds = bounds
                 fallback.layoutParams = FrameLayout.LayoutParams(bounds.width, bounds.height,
@@ -5987,14 +6141,28 @@ open class CarPlayHostActivity : ComponentActivity() {
                     topMargin = bounds.top
                 }
             }
+            // SurfaceView's RenderThread follows these transforms without resizing its Surface.
+            // A narrow area's edge guard must not allocate new buffers at the animation endpoint.
+            fallback.pivotX = 0f
+            fallback.pivotY = 0f
+            fallback.scaleX = if (fixed) content.width / bounds.width else 1f
+            fallback.scaleY = if (fixed) content.height / bounds.height else 1f
+            fallback.translationX = if (fixed) content.left else 0f
+            fallback.translationY = if (fixed) content.top else 0f
         } else {
             (view as? TextureView)?.setTransform(Matrix().apply {
                 setScale(content.width / viewWidth, content.height / viewHeight)
                 postTranslate(content.left, content.top)
             })
         }
-        if (sidePanelShown) placeSidePanel(viewWidth, viewHeight)
-        placeSidePanelTab(viewWidth, viewHeight)
+        val panelWidth = videoViewportWidth(viewWidth)
+        updateVideoChrome(panelWidth, viewHeight)
+    }
+
+    // These coordinates are logical viewport coordinates, already independent of the Surface.
+    private fun updateVideoChrome(panelWidth: Int, viewHeight: Int) {
+        if (sidePanelShown) placeSidePanel(panelWidth, viewHeight)
+        placeSidePanelTab(panelWidth, viewHeight)
     }
 
     private fun recordDetectedMaximum(size: DisplaySize) {
@@ -6332,6 +6500,24 @@ open class CarPlayHostActivity : ComponentActivity() {
         shutdown(terminateProcess = true, reason = "settings exit application")
     }
 
+    private fun stopBackgroundSession(completion: () -> Unit) {
+        shutdown(terminateProcess = false, reason = "DiPlay disconnect", completion = completion)
+        val mazda = MzdIntegration.enabled(this)
+        if (mazda) {
+            // The cockpit can still compose this task underneath Home. Its default exit
+            // animation moves that panel when Home disconnects an otherwise hidden host.
+            // Hide the retired content as well: OEM cross-task transitions may ignore overrides.
+            window.decorView.visibility = View.GONE
+            window.setWindowAnimations(0)
+            if (Build.VERSION.SDK_INT >= 34) overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, 0, 0)
+        }
+        finish()
+        if (mazda) {
+            @Suppress("DEPRECATION")
+            overridePendingTransition(0, 0)
+        }
+    }
+
     private fun shutdown(terminateProcess: Boolean, reason: String, completion: () -> Unit = {}) {
         if (!shuttingDown.compareAndSet(false, true)) { completion(); return }
         callPopupSessionReady = false
@@ -6354,6 +6540,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         teardownExecutor.execute {
             oldController?.close()
             val clean = oldController?.awaitClosed(CONTROLLER_CLOSE_TIMEOUT_MILLIS) ?: true
+            com.shilapi.xcertplay.mazda.MzdWirelessConnection.releaseLocalHotspot(this)
             oldSink?.let(::closeRetiringSink)
             airPlayCommandExecutor.shutdown()
             if (terminateProcess) {
@@ -6415,6 +6602,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         // Detach our wrapper before removing its TextureView; a late destruction callback
         // must not clear the framework-owned replacement surface.
         videoSurfaceOwner.clear()
+        mazdaVideo?.surfaceChanged()
         currentSurfaceTexture = null
         texture.surfaceTextureListener = null
         root.removeView(texture)
@@ -6475,8 +6663,12 @@ open class CarPlayHostActivity : ComponentActivity() {
     private fun showLastPicture() {
         if (sink == null) return
         val picture = lastPicture ?: return
-        val surfaceView = fallbackVideoView ?: return
-        val viewport = surfaceView.parent as? FrameLayout ?: return
+        val output = fallbackVideoView ?: (videoView as? TextureView)?.takeIf { MzdIntegration.enabled(this) } ?: return
+        val viewport = output.parent as? FrameLayout ?: return
+        if (pictureHoldAwaitTexture && pictureHold?.let {
+                it.parent === viewport && it.visibility == View.VISIBLE
+            } == true) return
+        pictureHoldAwaitTexture = output is TextureView
         val hold = pictureHold?.takeIf { it.parent === viewport } ?: ImageView(this).apply {
             scaleType = ImageView.ScaleType.FIT_XY
             isClickable = false
@@ -6484,9 +6676,10 @@ open class CarPlayHostActivity : ComponentActivity() {
         }.also {
             pictureHold?.let { old -> (old.parent as? ViewGroup)?.removeView(old) }
             pictureHold = it
-            viewport.addView(it)
+            // Keep preparation, touch, counters and settings above the parked picture.
+            viewport.addView(it, viewport.indexOfChild(output) + 1)
         }
-        (surfaceView.layoutParams as? FrameLayout.LayoutParams)?.let { hold.layoutParams = FrameLayout.LayoutParams(it) }
+        (output.layoutParams as? FrameLayout.LayoutParams)?.let { hold.layoutParams = FrameLayout.LayoutParams(it) }
         hold.animate().cancel()
         hold.setImageBitmap(picture)
         hold.alpha = 1f
@@ -6498,8 +6691,70 @@ open class CarPlayHostActivity : ComponentActivity() {
         appendLog("Last picture shown until a new frame")
     }
 
+    private fun hideLastPicture() {
+        val hold = pictureHold ?: return
+        pictureHoldAwaitTexture = false
+        mainHandler.removeCallbacks(pictureHoldTick)
+        mainHandler.removeCallbacks(pictureRetry)
+        hold.animate().alpha(0f).setDuration(150L).withEndAction {
+            hold.visibility = View.GONE
+            hold.setImageDrawable(null)
+        }.start()
+    }
+
+    private fun mazdaVideoIntegration(): MzdVideoCoordinator? {
+        if (!MzdIntegration.enabled(this)) return null
+        return mazdaVideo ?: MzdVideoCoordinator(this, mainHandler, state = {
+            val output = videoView
+            val live = sink
+            if (output == null || live == null) null else
+                MzdVideoCoordinator.State(output, currentSurface, sessionDisplay, live, pictureHold)
+        }, retryLayout = ::scheduleDisplaySize, requestArea = { index ->
+            if (menuOpen || handshakeResetInProgress || shuttingDown.get() || sidePanelShown) false
+            else controller?.showViewArea(index) == true
+        }).also { mazdaVideo = it }
+    }
+
+    /** Called before the OEM sidebar changes the viewport. */
+    internal fun beginMazdaPanelTransition(targetWidth: Int, deferUntilPanelEnd: Boolean = false): Boolean {
+        if (shuttingDown.get() || isFinishing || connectionPanel?.visibility == View.VISIBLE) return false
+        val integration = mazdaVideoIntegration() ?: return false
+        // Visible menus and side panels keep their usual responsive layout. Covered video uses
+        // one prepared chrome layout and a moving crop over its fixed canvas.
+        val layerMotion = deferUntilPanelEnd && !menuOpen && !sidePanelShown && !handshakeResetInProgress
+        // Release contacts using the old area before asking the iPhone to change their geometry.
+        gestureSequenceActive = false
+        gestureTracking = false
+        controller?.sendTouch(emptyList())
+        if (!integration.begin(targetWidth, layerMotion)) return false
+        videoView?.let {
+            updateVideoLayout(it.width, it.height)
+            // Prepare tab margins before the one target-size measure, never at the 400 ms end.
+            if (layerMotion) updateVideoChrome(targetWidth, it.height)
+        }
+        mainHandler.removeCallbacks(applyDisplaySize)
+        pendingDisplaySize = null
+        return !deferUntilPanelEnd || layerMotion
+    }
+
+    internal fun endMazdaPanelTransition(targetWidth: Int) {
+        if (mazdaVideo?.endPanelTransition(targetWidth) != true) return
+        mainHandler.removeCallbacks(applyDisplaySize)
+        pendingDisplaySize = null
+        videoView?.let { scheduleDisplaySize(targetWidth, it.height) }
+    }
+
+    internal fun keepMazdaReturnPicture() {
+        mazdaVideoIntegration()?.keepReturnPicture(lastPicture, pictureHold?.visibility == View.VISIBLE) {
+            captureLastPicture()
+            lastPicture
+        }
+    }
+
     // Forgets the last picture with its session, and stops showing or asking for one.
     private fun discardLastPicture() {
+        mazdaVideo?.dispose()
+        mazdaVideo = null
         mainHandler.removeCallbacks(pictureHoldTick)
         mainHandler.removeCallbacks(pictureRetry)
         pictureHold?.let { hold ->
@@ -6508,6 +6763,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             hold.setImageDrawable(null)
         }
         lastPicture = null
+        pictureHoldAwaitTexture = false
     }
 
     private fun attachSurface(surface: Surface) {
@@ -6577,6 +6833,10 @@ open class CarPlayHostActivity : ComponentActivity() {
             return true
         }
 
+        // Keep DiPlay's recovery/settings gesture available if the video stalls behind the mask.
+        // Only CarPlay contacts are blocked while the displayed picture and coordinates differ.
+        if (mazdaVideo?.isTransitionShowing == true) return true
+
         val content = contentRect(view.width, view.height)
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
             touchOutsideContent = !content.contains(event.x, event.y)
@@ -6598,11 +6858,14 @@ open class CarPlayHostActivity : ComponentActivity() {
             MotionEvent.ACTION_UP,
             MotionEvent.ACTION_POINTER_UP,
             // The unmasked action keeps the pointer index: ACTION_POINTER_UP(1), not always (0).
-            MotionEvent.ACTION_CANCEL -> Log.i(
-                TAG,
-                "touch action=${MotionEvent.actionToString(event.action)} " +
-                    "pointer=${event.getPointerId(event.actionIndex)} pointers=${event.pointerCount} queued=$queued",
-            )
+            MotionEvent.ACTION_CANCEL -> {
+                val first = contacts.firstOrNull()
+                val line = "touch action=${MotionEvent.actionToString(event.action)} " +
+                    "pointer=${event.getPointerId(event.actionIndex)} pointers=${event.pointerCount} " +
+                    "normalized=(${first?.x},${first?.y}) queued=$queued"
+                Log.i(TAG, line)
+                appendLog(line)
+            }
         }
         return true
     }
@@ -6847,6 +7110,7 @@ open class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun applyFullscreenMode() {
+        if (MzdIntegration.enabled(this)) MzdCarAppLayout.applyWindowBackground(this)
         val multiWindow = isMultiWindowActive()
         if (harmanFullscreenEnabled) {
             WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -6861,7 +7125,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         }
         val hideTop = hideTopBar && !multiWindow
         val hideBottom = hideBottomBar && !multiWindow
-        WindowCompat.setDecorFitsSystemWindows(window, !(hideTop && hideBottom))
+        WindowCompat.setDecorFitsSystemWindows(window, !MzdIntegration.cockpit(this) && !(hideTop && hideBottom))
         val controller = WindowInsetsControllerCompat(window, window.decorView)
         val peek = temporarySystemBarsVisible && !multiWindow && !harmanFullscreenEnabled
         if (hideTop && !peek) {
@@ -7041,6 +7305,7 @@ internal object CarPlayBackgroundSession {
     private var owner: Any? = null
     @Synchronized fun isOwner(candidate: Any): Boolean = owner === candidate
     @Synchronized fun hasSession(): Boolean = stopAction != null || stopping
+    @Synchronized fun isStopping(): Boolean = stopping
     private val stopWaiters = mutableListOf<() -> Unit>()
 
     fun stop(completion: () -> Unit = {}) {
@@ -7066,6 +7331,7 @@ internal object CarPlayBackgroundSession {
         val width: Int,
         val height: Int,
         val display: CarPlaySessionDisplay,
+        val returnPicture: Bitmap? = null,
     )
 
     private var controller: CarPlayController? = null
@@ -7073,13 +7339,21 @@ internal object CarPlayBackgroundSession {
     private var width = 0
     private var height = 0
     private var display: CarPlaySessionDisplay? = null
+    private var returnPicture: Bitmap? = null
+
+    @Synchronized
+    fun keepReturnPicture(owner: Any, sink: AndroidMediaSink, picture: Bitmap) {
+        if (this.owner === owner && this.sink === sink && !stopping && !picture.isRecycled) {
+            returnPicture = picture
+        }
+    }
 
     @Synchronized
     fun snapshot(): Snapshot? {
         val currentController = controller ?: return null
         val currentSink = sink ?: return null
         val currentDisplay = display ?: return null
-        return Snapshot(currentController, currentSink, width, height, currentDisplay)
+        return Snapshot(currentController, currentSink, width, height, currentDisplay, returnPicture)
     }
 
     @Synchronized
@@ -7089,6 +7363,7 @@ internal object CarPlayBackgroundSession {
             callPopupReady = false
             hotspotReady = null
         }
+        if (this.controller !== controller || this.sink !== sink) returnPicture = null
         this.stopAction = stop
         this.owner = owner
         this.controller = controller
@@ -7110,5 +7385,6 @@ internal object CarPlayBackgroundSession {
         width = 0
         height = 0
         display = null
+        returnPicture = null
     }
 }
