@@ -3800,7 +3800,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         AirPlayPersistence.saveManualHotspotInterface(this, interfaceName)
         markReconnectNeeded()
         val fromCar = importedCarHotspot == CarHotspotSavedCredentials(ssid, password, security)
-        if (CarHotspotConfigWrite.supported() && CarHotspotSettings.configWrite(this) && !fromCar) {
+        if (ssid.isNotEmpty() && CarHotspotConfigWrite.supported() && CarHotspotSettings.configWrite(this) && !fromCar) {
             AlertDialog.Builder(this)
                 .setTitle(getString(R.string.settings_car_hotspot_config_dialog_title))
                 .setMessage(getString(R.string.settings_car_hotspot_config_dialog_save_message))
@@ -3931,7 +3931,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val name = if (existingWifi) ssid.text.toString() else ssid.text.toString().trim()
                 val secret = password.text.toString()
-                val problem = hotspotError(name, secret)
+                val problem = if (!existingWifi && com.shilapi.xcertplay.mazda.MzdWirelessConnection.clearsManualDetails(this, name, secret))
+                    null else hotspotError(name, secret)
                 if (problem != null) error.text = problem
                 else {
                     val security = if (secret.isEmpty()) ManualHotspotSecurity.OPEN else protectedSecurity

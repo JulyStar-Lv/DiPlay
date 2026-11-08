@@ -7,6 +7,9 @@ import android.content.Intent
 import android.content.res.Resources
 import android.net.wifi.WifiManager
 import android.os.Looper
+import android.view.View
+import android.view.ViewGroup
+import android.widget.CheckBox
 import com.shilapi.xcertplay.AirPlayPersistence
 import com.shilapi.xcertplay.DiPlayActivity
 import com.shilapi.xcertplay.DiPlayPreferences
@@ -48,7 +51,7 @@ class MzdConnectionFlowTest {
     @Before fun setUp() {
         MazdaResources.enabled = true
         Radio.apEnabled = true
-        for (name in listOf("diplay", "xcertplay_airplay", "mazda_local_hotspot"))
+        for (name in listOf("diplay", "xcertplay_airplay", "mazda_local_hotspot", "mazda_connection"))
             app.getSharedPreferences(name, 0).edit().clear().commit()
         shadowOf(app).grantPermissions(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.NEARBY_WIFI_DEVICES)
         shadowOf(adapter).setEnabled(true)
@@ -148,17 +151,80 @@ class MzdConnectionFlowTest {
         assertTrue(ShadowAlertDialog.getLatestAlertDialog().isShowing)
     }
 
+    @Test fun clearingDetailsAfterManualFallbackAllowsAutomaticHotspotAgain() {
+        activity.intent = Intent().putExtra(MzdWirelessConnection.MANUAL_FALLBACK, true)
+        flow.onResume()
+        click(AlertDialog.BUTTON_POSITIVE)
+        flow.onPause(); flow.onResume()
+        assertEquals(1, edits)
+        AirPlayPersistence.saveManualHotspotSsid(app, "")
+        AirPlayPersistence.saveManualHotspotPassphrase(app, "")
+        flow.manualDetailsSaved()
+        Radio.apEnabled = false
+        assertTrue(flow.prepare())
+        assertEquals(1, edits)
+        assertEquals(WirelessHotspotMode.LOCAL_ONLY_HOTSPOT, MzdWirelessConnection.runtimeMode(app, WirelessHotspotMode.MANUAL))
+    }
+
     @Test fun wifiReminderReturnsAfterEachNewConnectionAndDoesNotDisableWifi() {
         @Suppress("DEPRECATION")
         wifi.isWifiEnabled = true
         assertFalse(flow.prepare())
-        click(AlertDialog.BUTTON_NEUTRAL)
+        assertFalse(wifiCheckBox().isChecked)
+        click(AlertDialog.BUTTON_NEGATIVE)
         assertEquals(1, retries)
         assertTrue(flow.prepare())
         assertTrue(wifi.isWifiEnabled)
         flow.projectionOpened(); flow.onResume()
         assertFalse(flow.prepare())
         assertTrue(ShadowAlertDialog.getLatestAlertDialog().isShowing)
+    }
+
+    @Test fun checkedConnectAnywaySkipsWifiChecksAcrossNewConnectionsAndFlowInstances() {
+        @Suppress("DEPRECATION")
+        wifi.isWifiEnabled = true
+        assertFalse(flow.prepare())
+        wifiCheckBox().isChecked = true
+        click(AlertDialog.BUTTON_NEGATIVE)
+        assertEquals(1, retries)
+        assertTrue(flow.prepare())
+        flow.projectionOpened(); flow.onResume()
+        assertTrue(flow.prepare())
+        flow.cancel()
+        flow = MzdConnectionFlow(activity, { retries++ }, { phoneChoices++ }, { edits++ }, { AlertDialog.Builder(activity) })
+        assertTrue(flow.prepare())
+        assertNull(MzdWirelessConnection.wifiWarning(app, WirelessHotspotMode.MANUAL))
+        assertNull(MzdWirelessConnection.wifiWarning(app, WirelessHotspotMode.LOCAL_ONLY_HOTSPOT))
+        assertTrue(wifi.isWifiEnabled)
+    }
+
+    @Test fun checkedDismissOrOpenSettingsDoesNotSaveSkippingWifiChecks() {
+        @Suppress("DEPRECATION")
+        wifi.isWifiEnabled = true
+        for (dismiss in listOf(true, false)) {
+            assertFalse(flow.prepare())
+            wifiCheckBox().isChecked = true
+            if (dismiss) {
+                ShadowAlertDialog.getLatestAlertDialog().cancel()
+                shadowOf(Looper.getMainLooper()).idle()
+            } else click(AlertDialog.BUTTON_POSITIVE)
+            assertNotNull(MzdWirelessConnection.wifiWarning(app, WirelessHotspotMode.MANUAL))
+            flow.cancel()
+        }
+    }
+
+    @Test fun skippingWifiChecksStillRequiresTheManualHotspotAndBluetooth() {
+        MzdWirelessConnection.skipFutureWifiChecks(app)
+        @Suppress("DEPRECATION")
+        wifi.isWifiEnabled = true
+        saveManual()
+        Radio.apEnabled = false
+        assertFalse(flow.prepare())
+        assertEquals(activity.getString(R.string.car_hotspot_is_off), shadowOf(ShadowAlertDialog.getLatestAlertDialog()).title)
+        flow.cancel()
+        shadowOf(adapter).setEnabled(false)
+        assertFalse(flow.prepare())
+        assertEquals(activity.getString(R.string.turn_on_bluetooth), shadowOf(ShadowAlertDialog.getLatestAlertDialog()).title)
     }
 
     @Test fun turningOffWifiInOemAutomaticallyResumesThePendingConnection() {
@@ -230,6 +296,7 @@ class MzdConnectionFlowTest {
 
     @Test fun otherBuildsKeepTheirModeAndDoNotGetAMazdaFactory() {
         MazdaResources.enabled = false
+        assertFalse(MzdWirelessConnection.clearsManualDetails(app, "", ""))
         assertEquals(WirelessHotspotMode.MANUAL, MzdWirelessConnection.runtimeMode(app, WirelessHotspotMode.MANUAL))
         assertNull(MzdWirelessConnection.hotspotFactory(app) { fail("not Mazda") })
     }
@@ -246,6 +313,13 @@ class MzdConnectionFlowTest {
     private fun saveManual() {
         AirPlayPersistence.saveManualHotspotSsid(app, "Car hotspot")
         AirPlayPersistence.saveManualHotspotPassphrase(app, "12345678")
+    }
+    private fun wifiCheckBox(): CheckBox {
+        fun descendants(view: View): Sequence<View> = sequence {
+            yield(view)
+            if (view is ViewGroup) for (index in 0 until view.childCount) yieldAll(descendants(view.getChildAt(index)))
+        }
+        return descendants(ShadowAlertDialog.getLatestAlertDialog().window!!.decorView).filterIsInstance<CheckBox>().single()
     }
     private fun click(button: Int) {
         ShadowAlertDialog.getLatestAlertDialog().getButton(button).performClick()

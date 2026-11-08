@@ -7,6 +7,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
+import android.widget.CheckBox
+import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import com.shilapi.xcertplay.AirPlayPersistence
@@ -168,7 +170,7 @@ internal class MzdConnectionFlow(
         dialog = null
     }
 
-    fun manualDetailsSaved() { editingManual = false }
+    fun manualDetailsSaved() { editingManual = false; forceManual = false }
     fun phoneChosen() { choosingPhone = false }
     private fun editDetails() { editingManual = true; editManual() }
     private fun selectPhone() { choosingPhone = true; choosePhone() }
@@ -192,10 +194,23 @@ internal class MzdConnectionFlow(
     }
 
     private fun showWifiReminder() {
-        show(builder().setTitle(R.string.mazda_wifi_off_title).setMessage(R.string.mazda_wifi_off_message)
+        val reminder = builder()
+        val skipCheck = CheckBox(reminder.context).apply {
+            text = activity.getString(R.string.mazda_skip_wifi_check)
+        }
+        val content = FrameLayout(reminder.context).apply {
+            val inset = (WIFI_REMINDER_INSET_DP * resources.displayMetrics.density).toInt()
+            setPaddingRelative(inset, 0, inset, 0)
+            addView(skipCheck, FrameLayout.LayoutParams(-1, -2))
+        }
+        show(reminder.setTitle(R.string.mazda_wifi_off_title).setMessage(R.string.mazda_wifi_off_message)
+            .setView(content)
             .setPositiveButton(R.string.open_car_wi_fi_settings) { _, _ -> go { openNetwork(Page.WIFI) } }
-            .setNeutralButton(R.string.mazda_connect_anyway) { _, _ -> go { wifiAccepted = true; retry() } }
-            .setNegativeButton(R.string.cancel) { _, _ -> cancel() })
+            .setNegativeButton(R.string.mazda_connect_anyway) { _, _ -> go {
+                if (skipCheck.isChecked) MzdWirelessConnection.skipFutureWifiChecks(activity)
+                wifiAccepted = true
+                retry()
+            } })
     }
 
     private fun openNetwork(page: Page) {
@@ -219,6 +234,9 @@ internal class MzdConnectionFlow(
     private fun toast(message: Int) { Toast.makeText(activity, message, Toast.LENGTH_LONG).show() }
 
     companion object {
+        // The native checkbox mark has its own inset inside the view.
+        private const val WIFI_REMINDER_INSET_DP = 16
+
         fun oemIntent(caller: String, target: String): Intent = Intent().setClassName(
             "com.wt.vehiclecenter", "com.wt.vehiclecenter.activities.VehicleCenterActivity",
         ).putExtra("INTENT_TO_VEHICLE_CENTER", arrayOf(target, caller))

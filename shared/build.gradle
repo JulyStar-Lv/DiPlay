@@ -49,6 +49,10 @@ android {
         // Geely/Lynk head-unit input API (com.geely.inputservice); declarations in src/main/aidl.
         aidl true
     }
+    testOptions {
+        // Keep the Android 14/15 callback coverage alongside the older SDK sandboxes.
+        unitTests.all { maxHeapSize = '2g' }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11

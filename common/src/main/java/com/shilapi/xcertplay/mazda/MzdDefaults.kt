@@ -23,6 +23,8 @@ internal object MzdDefaults {
         if (!preferences.contains("main_buffered_audio")) {
             AirPlayPersistence.saveMainBufferedAudio(context, true)
         }
+        if (!preferences.contains("spatial_audio_experimental")) AirPlayPersistence.saveSpatialAudio(context, true)
+        if (!preferences.contains("spatial_pcm_dcx_experimental")) AirPlayPersistence.saveSpatialPcmDcx(context, true)
         if (preferences.getBoolean("mazda_defaults_initialized", false)) return
         if (!preferences.contains("hide_top_bar")) AirPlayPersistence.saveHideTopBar(context, false)
         if (!preferences.contains("hide_bottom_bar")) AirPlayPersistence.saveHideBottomBar(context, false)

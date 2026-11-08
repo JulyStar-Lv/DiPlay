@@ -2,8 +2,9 @@
 <resources>
     <string name="mazda_hotspot_mode_description">Saved car hotspot details are used first. Without saved details, DiPlay creates a local 5 GHz hotspot. If that fails, turn on the car hotspot and save its details here.</string>
     <string name="mazda_hotspot_automatic">No car hotspot details saved. DiPlay will create a local 5 GHz hotspot when you connect.</string>
-    <string name="mazda_wifi_off_title">Turn off car Wi-Fi for smoother CarPlay</string>
-    <string name="mazda_wifi_off_message">Background Wi-Fi searches on the car may cause CarPlay audio or video to stutter. Turn off the car WLAN; the hotspot can stay on. Keep Wi-Fi on your iPhone enabled.</string>
+    <string name="mazda_wifi_off_title">Turn off car Wi-Fi</string>
+    <string name="mazda_wifi_off_message">Car Wi-Fi scans may cause CarPlay to stutter. Turn off car Wi-Fi; keep the hotspot and iPhone Wi-Fi on.</string>
+    <string name="mazda_skip_wifi_check">Do not remind again</string>
     <string name="mazda_connect_anyway">Connect anyway</string>
     <string name="mazda_local_hotspot_failed_title">Could not create a local hotspot</string>
     <string name="mazda_local_hotspot_failed_message">Open the car hotspot settings and turn on the hotspot, preferably at 5 GHz. Then enter its name and password in DiPlay Settings → Hotspot connection. Saved details will be filled in.</string>

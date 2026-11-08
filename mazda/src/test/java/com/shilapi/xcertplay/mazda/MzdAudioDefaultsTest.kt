@@ -48,6 +48,8 @@ class MzdAudioDefaultsTest {
         assertFalse(preferences.contains("wired_media_buffer_ms"))
         assertEquals(WirelessHotspotMode.MANUAL, AirPlayPersistence.loadWirelessHotspotMode(application))
         assertTrue(AirPlayPersistence.loadMainBufferedAudio(application))
+        assertTrue(AirPlayPersistence.loadSpatialAudio(application))
+        assertTrue(AirPlayPersistence.loadSpatialPcmDcx(application))
         assertTrue(AirPlayPersistence.loadDisableMediaKeyAudioFocus(application))
         assertEquals(300, AirPlayPersistence.loadMediaBufferMillis(application, wireless = true))
         assertEquals(300, AirPlayPersistence.loadMediaBufferMillis(application, wireless = false))
@@ -55,6 +57,8 @@ class MzdAudioDefaultsTest {
 
     @Test fun subsequentApplicationStartupRetainsUserAudioChoices() {
         AirPlayPersistence.saveMainBufferedAudio(application, false)
+        AirPlayPersistence.saveSpatialAudio(application, false)
+        AirPlayPersistence.saveSpatialPcmDcx(application, false)
         AirPlayPersistence.saveDisableMediaKeyAudioFocus(application, false)
         AirPlayPersistence.saveMediaBufferMillis(application, wireless = true, millis = 500)
         AirPlayPersistence.saveMediaBufferMillis(application, wireless = false, millis = 50)
@@ -62,6 +66,8 @@ class MzdAudioDefaultsTest {
         application.onCreate()
 
         assertFalse(AirPlayPersistence.loadMainBufferedAudio(application))
+        assertFalse(AirPlayPersistence.loadSpatialAudio(application))
+        assertFalse(AirPlayPersistence.loadSpatialPcmDcx(application))
         assertFalse(AirPlayPersistence.loadDisableMediaKeyAudioFocus(application))
         assertEquals(500, AirPlayPersistence.loadMediaBufferMillis(application, wireless = true))
         assertEquals(50, AirPlayPersistence.loadMediaBufferMillis(application, wireless = false))
@@ -70,11 +76,14 @@ class MzdAudioDefaultsTest {
     @Test fun oldApplicationWithMissingWirelessSettingKeepsItsWiredSetting() {
         application.getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE).edit()
             .remove("media_buffer_ms").remove("main_buffered_audio").remove("disable_media_key_audio_focus")
+            .remove("spatial_audio_experimental").remove("spatial_pcm_dcx_experimental")
             .putInt("wired_media_buffer_ms", 100).commit()
 
         application.onCreate()
 
         assertTrue(AirPlayPersistence.loadMainBufferedAudio(application))
+        assertTrue(AirPlayPersistence.loadSpatialAudio(application))
+        assertTrue(AirPlayPersistence.loadSpatialPcmDcx(application))
         assertEquals(300, AirPlayPersistence.loadMediaBufferMillis(application, wireless = true))
         assertEquals(100, AirPlayPersistence.loadMediaBufferMillis(application, wireless = false))
         assertTrue(AirPlayPersistence.loadDisableMediaKeyAudioFocus(application))

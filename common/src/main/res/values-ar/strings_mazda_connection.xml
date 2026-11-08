@@ -2,8 +2,9 @@
 <resources>
     <string name="mazda_hotspot_mode_description">تُستخدم بيانات نقطة اتصال السيارة المحفوظة أولاً. عند عدم وجودها، ينشئ DiPlay نقطة محلية بتردد 5 غيغاهرتز. إذا تعذر ذلك، شغّل نقطة السيارة واحفظ بياناتها هنا.</string>
     <string name="mazda_hotspot_automatic">لم تُحفظ بيانات نقطة اتصال السيارة. سينشئ DiPlay نقطة محلية بتردد 5 غيغاهرتز عند الاتصال.</string>
-    <string name="mazda_wifi_off_title">يُوصى بإيقاف Wi-Fi السيارة</string>
-    <string name="mazda_wifi_off_message">قد يؤدي بحث السيارة عن شبكات Wi-Fi في الخلفية إلى تقطع صوت أو صورة CarPlay. أوقف WLAN السيارة؛ يمكن إبقاء نقطة الاتصال مفعلة. أبقِ Wi-Fi على iPhone مفعلاً.</string>
+    <string name="mazda_wifi_off_title">أوقف Wi-Fi السيارة</string>
+    <string name="mazda_wifi_off_message">قد يسبب بحث Wi-Fi السيارة تقطع CarPlay. أوقف Wi-Fi السيارة وأبقِ نقطة الاتصال وWi-Fi على iPhone مفعّلين.</string>
+    <string name="mazda_skip_wifi_check">عدم التذكير مجددًا</string>
     <string name="mazda_connect_anyway">الاتصال على أي حال</string>
     <string name="mazda_local_hotspot_failed_title">تعذر إنشاء نقطة اتصال محلية</string>
     <string name="mazda_local_hotspot_failed_message">شغّل نقطة الاتصال من إعدادات السيارة، ويفضل بتردد 5 غيغاهرتز. ثم أدخل اسمها وكلمة مرورها في إعدادات DiPlay ← اتصال نقطة الاتصال. ستُملأ البيانات المحفوظة تلقائياً.</string>

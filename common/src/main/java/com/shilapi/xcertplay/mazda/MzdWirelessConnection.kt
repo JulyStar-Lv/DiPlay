@@ -16,10 +16,20 @@ import com.shilapi.xcertplay.orchestration.CarPlayTransport
 /** Saved MANUAL remains the driver's car-hotspot choice; LOCAL_ONLY is a runtime strategy only. */
 internal object MzdWirelessConnection {
     const val MANUAL_FALLBACK = "mazda_manual_hotspot_fallback"
+    private const val CONNECTION_PREFERENCES = "mazda_connection"
+    private const val SKIP_WIFI_CHECK = "skip_wifi_check"
+
+    fun skipFutureWifiChecks(context: Context) {
+        context.getSharedPreferences(CONNECTION_PREFERENCES, Context.MODE_PRIVATE)
+            .edit().putBoolean(SKIP_WIFI_CHECK, true).apply()
+    }
 
     fun hasManualDetails(context: Context): Boolean =
         AirPlayPersistence.loadManualHotspotSsid(context).isNotEmpty() ||
             AirPlayPersistence.loadManualHotspotPassphrase(context).isNotEmpty()
+
+    fun clearsManualDetails(context: Context, ssid: String, password: String): Boolean =
+        MzdIntegration.enabled(context) && ssid.isEmpty() && password.isEmpty()
 
     fun automatic(context: Context, mode: WirelessHotspotMode): Boolean =
         MzdIntegration.enabled(context) && mode != WirelessHotspotMode.EXISTING_WIFI && !hasManualDetails(context)
@@ -35,6 +45,7 @@ internal object MzdWirelessConnection {
 
     fun wifiWarning(context: Context, mode: WirelessHotspotMode): String? =
         if (MzdIntegration.enabled(context) && mode != WirelessHotspotMode.EXISTING_WIFI &&
+            !context.getSharedPreferences(CONNECTION_PREFERENCES, Context.MODE_PRIVATE).getBoolean(SKIP_WIFI_CHECK, false) &&
             context.applicationContext.getSystemService(WifiManager::class.java)?.isWifiEnabled == true
         ) context.getString(R.string.mazda_wifi_off_message) else null
 

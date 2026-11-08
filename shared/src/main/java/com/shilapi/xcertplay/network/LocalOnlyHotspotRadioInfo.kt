@@ -46,7 +46,13 @@ internal class LocalOnlyHotspotRadioInfo(
                     "equals" -> self === args?.firstOrNull()
                     "toString" -> "DiPlay local hotspot radio observer"
                     "onStateChanged" -> {
-                        (args?.firstOrNull() as? Number)?.toInt()?.let(onStateChanged)
+                        val state = args?.firstOrNull()
+                        // Android 15 sends SoftApState; a dynamic proxy does not run its
+                        // default interface method that forwards to the older (int, int) callback.
+                        val value = if (state is Number) state.toInt() else runCatching {
+                            (state?.javaClass?.getMethod("getState")?.invoke(state) as? Number)?.toInt()
+                        }.getOrNull()
+                        value?.let(onStateChanged)
                         null
                     }
                     "onInfoChanged" -> {

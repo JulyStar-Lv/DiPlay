@@ -3,8 +3,16 @@ package com.shilapi.xcertplay.mazda
 import android.content.Context
 import android.content.Intent
 import android.Manifest
+import android.app.AlertDialog
 import android.bluetooth.BluetoothManager
 import android.net.wifi.WifiManager
+import android.os.Looper
+import android.view.View
+import android.view.ViewGroup
+import android.widget.Button
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.TextView
 import com.shilapi.xcertplay.AirPlayPersistence
 import com.shilapi.xcertplay.AppAppearanceRuntime
 import com.shilapi.xcertplay.CarHotspotOffConnectTest
@@ -99,5 +107,70 @@ class MzdHotspotFlowTest {
         val dialog = requireNotNull(ShadowAlertDialog.getLatestAlertDialog())
         assertEquals(activity.getString(R.string.car_hotspot_is_off), shadowOf(dialog).title)
         assertNull(shadowOf(activity).nextStartedActivity)
+    }
+
+    @Test fun savingEmptyNameAndPasswordClearsManualDetailsAndRestoresAutomaticMode() {
+        AirPlayPersistence.saveManualHotspotSsid(context, "Car 5G")
+        AirPlayPersistence.saveManualHotspotPassphrase(context, "12345678")
+        val automatic = MzdLocalHotspot.credentials(context, "DiPlay")
+        CarHotspotSettings.setConfigWrite(context, true)
+        val dialog = openHotspotDetails()
+        input(dialog, R.string.hotspot_name).setText("   ")
+        input(dialog, R.string.hotspot_password).setText("")
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        assertFalse(dialog.isShowing)
+        assertSame(dialog, ShadowAlertDialog.getLatestAlertDialog())
+        assertEquals("", AirPlayPersistence.loadManualHotspotSsid(context))
+        assertEquals("", AirPlayPersistence.loadManualHotspotPassphrase(context))
+        assertFalse(MzdWirelessConnection.hasManualDetails(context))
+        assertEquals(WirelessHotspotMode.LOCAL_ONLY_HOTSPOT,
+            MzdWirelessConnection.runtimeMode(context, AirPlayPersistence.loadWirelessHotspotMode(context)))
+        assertEquals(automatic, MzdLocalHotspot.credentials(context, "DiPlay"))
+    }
+
+    @Test fun emptyNameWithRemainingPasswordDoesNotClearSavedDetails() {
+        AirPlayPersistence.saveManualHotspotSsid(context, "Car 5G")
+        AirPlayPersistence.saveManualHotspotPassphrase(context, "12345678")
+        val dialog = openHotspotDetails()
+        input(dialog, R.string.hotspot_name).setText("")
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        assertTrue(dialog.isShowing)
+        assertEquals("Car 5G", AirPlayPersistence.loadManualHotspotSsid(context))
+        assertEquals("12345678", AirPlayPersistence.loadManualHotspotPassphrase(context))
+        assertTrue(descendants(dialog.window!!.decorView).filterIsInstance<TextView>()
+            .any { it.text == context.getString(R.string.hotspot_error_empty_name) })
+    }
+
+    @Test fun emptyExistingWifiDetailsKeepTheirValidation() {
+        AirPlayPersistence.saveExistingWifiCredentials(context, "Home Wi-Fi", "12345678")
+        val dialog = openHotspotDetails(existingWifi = true)
+        input(dialog, R.string.existing_wifi_ssid).setText("")
+        input(dialog, R.string.existing_wifi_password).setText("")
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        assertTrue(dialog.isShowing)
+        assertEquals("Home Wi-Fi", AirPlayPersistence.loadExistingWifiSsid(context))
+        assertEquals("12345678", AirPlayPersistence.loadExistingWifiPassphrase(context))
+    }
+
+    private fun openHotspotDetails(existingWifi: Boolean = false): AlertDialog {
+        val activity = Robolectric.buildActivity(DiPlayActivity::class.java).setup().get()
+        home = activity
+        val controls = LinearLayout(activity)
+        ReflectionHelpers.callInstanceMethod<Unit>(activity, "wirelessLinkControls",
+            ReflectionHelpers.ClassParameter.from(LinearLayout::class.java, controls))
+        descendants(controls).filterIsInstance<Button>().first { button ->
+            if (existingWifi) button.text.contains(activity.getString(R.string.existing_wifi_title))
+            else button.text.startsWith(activity.getString(R.string.edit_saved_hotspot_prefix))
+        }.performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        return ShadowAlertDialog.getLatestAlertDialog()
+    }
+
+    private fun input(dialog: AlertDialog, hint: Int): EditText =
+        descendants(dialog.window!!.decorView).filterIsInstance<EditText>().single { it.hint == context.getString(hint) }
+
+    private fun descendants(view: View): Sequence<View> = sequence {
+        yield(view)
+        if (view is ViewGroup) for (index in 0 until view.childCount) yieldAll(descendants(view.getChildAt(index)))
     }
 }

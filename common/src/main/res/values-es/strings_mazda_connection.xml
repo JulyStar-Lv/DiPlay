@@ -2,8 +2,9 @@
 <resources>
     <string name="mazda_hotspot_mode_description">Se usan primero los datos guardados del punto de acceso del coche. Sin datos guardados, DiPlay crea uno local de 5 GHz. Si falla, active el del coche y guarde aquí sus datos.</string>
     <string name="mazda_hotspot_automatic">No hay datos del punto de acceso del coche. DiPlay creará uno local de 5 GHz al conectar.</string>
-    <string name="mazda_wifi_off_title">Desactive el Wi-Fi del coche</string>
-    <string name="mazda_wifi_off_message">Las búsquedas Wi-Fi del coche pueden causar cortes en el audio o vídeo de CarPlay. Desactive la WLAN del coche; el punto de acceso puede seguir activo. Mantenga activado el Wi-Fi del iPhone.</string>
+    <string name="mazda_wifi_off_title">Desactiva el Wi-Fi del coche</string>
+    <string name="mazda_wifi_off_message">La búsqueda Wi-Fi del coche puede causar cortes en CarPlay. Desactívalo; mantén activos el punto de acceso y el Wi-Fi del iPhone.</string>
+    <string name="mazda_skip_wifi_check">No volver a recordar</string>
     <string name="mazda_connect_anyway">Conectar igualmente</string>
     <string name="mazda_local_hotspot_failed_title">No se pudo crear el punto de acceso local</string>
     <string name="mazda_local_hotspot_failed_message">Active el punto de acceso en los ajustes del coche, preferiblemente a 5 GHz. Después introduzca su nombre y contraseña en Ajustes → Conexión al punto de acceso de DiPlay. Los datos guardados se rellenarán.</string>

@@ -2,8 +2,9 @@
 <resources>
     <string name="mazda_hotspot_mode_description">保存済みの車載機ホットスポット情報を優先します。未設定の場合はローカルの5 GHzホットスポットを作成します。失敗した場合は車載機のホットスポットを手動でオンにし、情報を保存してください。</string>
     <string name="mazda_hotspot_automatic">車載機ホットスポット情報は未設定です。接続時にローカルの5 GHzホットスポットを作成します。</string>
-    <string name="mazda_wifi_off_title">車載機のWi-Fiをオフにしてください</string>
-    <string name="mazda_wifi_off_message">車載機によるバックグラウンドのWi-Fi検索は、CarPlayの音声や映像の途切れにつながる場合があります。車載機のWLANをオフにしてください。ホットスポットはオンのまま使えます。iPhoneのWi-Fiはオンにしてください。</string>
+    <string name="mazda_wifi_off_title">車の Wi-Fi をオフに</string>
+    <string name="mazda_wifi_off_message">車の Wi-Fi 検索で CarPlay が途切れる場合があります。車の Wi-Fi をオフにし、ホットスポットと iPhone の Wi-Fi はオンのままにしてください。</string>
+    <string name="mazda_skip_wifi_check">今後表示しない</string>
     <string name="mazda_connect_anyway">このまま接続</string>
     <string name="mazda_local_hotspot_failed_title">ローカルホットスポットを作成できませんでした</string>
     <string name="mazda_local_hotspot_failed_message">車載機の設定でホットスポットをオンにしてください。5 GHzを推奨します。その後、DiPlayの「設定 → ホットスポット接続」に名前とパスワードを入力してください。保存済みの情報は自動入力されます。</string>
