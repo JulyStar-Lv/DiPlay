@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.os.Looper
+import java.time.Duration
 import com.shilapi.xcertplay.orchestration.MfiTarget
 import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 import org.junit.After
@@ -127,6 +128,9 @@ class ExternalIntentExtrasTest {
         val device = BluetoothAdapter.getDefaultAdapter().getRemoteDevice(phone)
         PhoneBluetoothReceiver().onReceive(context,
             Intent(BluetoothDevice.ACTION_ACL_CONNECTED).putExtra(BluetoothDevice.EXTRA_DEVICE, device))
+        val service = startDelayedAutoStart(context)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(10))
+        service.destroy()
         val launch = launches.single()
         val controller = open(Intent(app, DiPlayActivity::class.java))
         controller.newIntent(launch)
@@ -141,6 +145,9 @@ class ExternalIntentExtrasTest {
         val device = BluetoothAdapter.getDefaultAdapter().getRemoteDevice(phone)
         PhoneBluetoothReceiver().onReceive(context,
             Intent(BluetoothDevice.ACTION_ACL_CONNECTED).putExtra(BluetoothDevice.EXTRA_DEVICE, device))
+        val service = startDelayedAutoStart(context)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(10))
+        service.destroy()
         return launches.single()
     }
 

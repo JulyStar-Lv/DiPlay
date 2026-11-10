@@ -3,6 +3,7 @@ package com.shilapi.xcertplay
 import android.app.Activity
 import android.content.Intent
 import android.util.Log
+import com.shilapi.xcertplay.mazda.MzdIntegration
 
 /**
  * Opens one of DiPlay's own screens from [Activity.startActivity] without letting a refusal close DiPlay.
@@ -16,6 +17,7 @@ internal object OwnScreenStart {
     private const val TAG = "DiPlay"
 
     fun start(activity: Activity, intent: Intent, log: (String) -> Unit = { Log.w(TAG, it) }): Boolean {
+        MzdIntegration.routeLaunch(activity, intent)
         val screen = intent.component?.className?.substringAfterLast('.') ?: "screen"
         try {
             activity.startActivity(intent)

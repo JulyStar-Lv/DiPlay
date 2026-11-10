@@ -25,6 +25,11 @@ internal object StartupDiagnosticSnapshot {
         }
     }
 
+    fun launchCancelled(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString("launchResult", "cancelled").apply()
+    }
+
     fun report(context: Context): String = runCatching {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val receivedAt = prefs.getLong("receivedAt", 0)

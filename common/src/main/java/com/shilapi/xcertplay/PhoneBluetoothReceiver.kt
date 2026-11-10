@@ -36,12 +36,8 @@ class PhoneBluetoothReceiver : BroadcastReceiver() {
         if (prefs.contains("last_launch_elapsed") && now >= previous && now - previous < 15_000) return
         prefs.edit().putLong("last_launch_elapsed", now).commit()
         PhoneWakeDiagnostics.record(context, "matched")
-        val launch = Intent(context, DiPlayActivity::class.java).apply {
-            putExtra(EXTRA_AUTO_CONNECT, launchToken)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        }
-        runCatching { context.startActivity(launch) }
-            .onSuccess { PhoneWakeDiagnostics.record(context, "startActivity-returned") }
+        runCatching { AutoStartDelayService.requestPhone(context, address) }
+            .onSuccess { PhoneWakeDiagnostics.record(context, "scheduled-10s") }
             .onFailure { error ->
                 PhoneWakeDiagnostics.record(context, "failed", error)
                 Log.w("DiPlayPhoneWake", "Bluetooth wake launch failed: ${error.javaClass.simpleName}")

@@ -5,16 +5,21 @@ import android.bluetooth.BluetoothDevice
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
+import android.os.Looper
+import java.time.Duration
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.LooperMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29])
+@LooperMode(LooperMode.Mode.PAUSED)
 class PhoneBluetoothReceiverTest {
     private val app get() = RuntimeEnvironment.getApplication()
     private val selected = "12:34:56:78:9A:BC"
@@ -48,6 +53,10 @@ class PhoneBluetoothReceiverTest {
         assertTrue(launches.isEmpty())
         receiver.onReceive(context, event(selected))
         receiver.onReceive(context, event(selected))
+        assertTrue(launches.isEmpty())
+        val service = startDelayedAutoStart(context)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(10))
+        service.destroy()
         assertEquals(1, launches.size)
         assertEquals(DiPlayActivity::class.java.name, launches.single().component?.className)
         assertEquals(PhoneBluetoothReceiver.launchToken, launches.single().getStringExtra(PhoneBluetoothReceiver.EXTRA_AUTO_CONNECT))

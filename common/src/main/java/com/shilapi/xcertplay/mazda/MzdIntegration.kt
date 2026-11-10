@@ -44,6 +44,12 @@ internal object MzdIntegration {
 
     fun enabled(context: Context) = context.resources.getBoolean(R.bool.config_mazda)
 
+    fun routeLaunch(context: Context, intent: Intent) {
+        if (!enabled(context)) return
+        // Unscoped starts become a full-display task and hide the OEM wallpaper TaskView.
+        intent.putExtra("task_display_area", if (context is Activity) homeArea(context) else "area_left")
+    }
+
     fun wrap(activity: Activity, content: View): View {
         if (!enabled(activity)) return content
         val application = activity.application

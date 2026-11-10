@@ -4,6 +4,7 @@ import android.content.ContextWrapper
 import android.content.Intent
 import android.os.Bundle
 import android.os.Looper
+import java.time.Duration
 import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 import org.junit.Assert.*
 import org.junit.Before
@@ -51,6 +52,9 @@ class LauncherIntentTest {
             override fun startActivity(intent: Intent) { launch = intent }
         }
         BootReceiver().onReceive(context, Intent(Intent.ACTION_BOOT_COMPLETED))
+        val service = startDelayedAutoStart(context)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(10))
+        service.destroy()
         return launch!!
     }
 

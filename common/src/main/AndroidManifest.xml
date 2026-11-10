@@ -70,6 +70,8 @@
         </activity>
         <service android:name="com.shilapi.xcertplay.DiPlaySessionService"
             android:exported="false" android:foregroundServiceType="connectedDevice|microphone|location" />
+        <service android:name="com.shilapi.xcertplay.AutoStartDelayService"
+            android:exported="false" android:foregroundServiceType="connectedDevice" />
 
         <activity
             android:name="com.shilapi.xcertplay.CarPlayHostActivity"

@@ -3,16 +3,21 @@ package com.shilapi.xcertplay
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
+import android.os.Looper
+import java.time.Duration
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.LooperMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29])
+@LooperMode(LooperMode.Mode.PAUSED)
 class StartupDiagnosticSnapshotTest {
     private val app get() = RuntimeEnvironment.getApplication()
     @Before fun reset() {
@@ -38,6 +43,11 @@ class StartupDiagnosticSnapshotTest {
             override fun startActivity(intent: Intent) { launch = intent }
         }
         BootReceiver().onReceive(context, Intent(Intent.ACTION_BOOT_COMPLETED))
+        assertNull(launch)
+        assertTrue(StartupDiagnosticSnapshot.report(app).contains("launchResult=pending"))
+        val service = startDelayedAutoStart(context)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(10))
+        service.destroy()
         assertEquals(DiPlayActivity::class.java.name, launch!!.component!!.className)
         assertTrue(launch!!.flags and Intent.FLAG_ACTIVITY_NEW_TASK != 0)
         assertTrue(StartupDiagnosticSnapshot.report(app).contains("launchResult=startActivity-returned"))
@@ -49,6 +59,9 @@ class StartupDiagnosticSnapshotTest {
             override fun startActivity(intent: Intent) { throw SecurityException("Jane's phone token=private-data") }
         }
         BootReceiver().onReceive(context, Intent(Intent.ACTION_BOOT_COMPLETED))
+        val service = startDelayedAutoStart(context)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(10))
+        service.destroy()
         val failed = StartupDiagnosticSnapshot.report(app)
         assertTrue(failed.contains("launchResult=failed failureClass=SecurityException"))
         assertFalse(failed.contains("Jane")); assertFalse(failed.contains("private-data"))
